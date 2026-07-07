@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "OBD Sıcaklık İzleyici",
-    "slug": "mobile",
+    "slug": "obd-hararet",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
