@@ -1,0 +1,320 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Notifications from "expo-notifications";
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { AppState } from "react-native";
+
+import {
+  bluetoothUnavailableReason,
+  isBluetoothClassicAvailable,
+  obdEngine,
+  type EngineStatus,
+  type PairedDevice,
+} from "@/lib/obdEngine";
+import {
+  isBackgroundServiceAvailable,
+  startBackgroundMonitoring,
+  stopBackgroundMonitoring,
+} from "@/lib/backgroundTask";
+
+export interface AlertLogEntry {
+  id: string;
+  temperatureC: number;
+  timestamp: number;
+}
+
+interface ObdContextValue {
+  bluetoothAvailable: boolean;
+  backgroundAvailable: boolean;
+  unavailableReason: string | null;
+
+  bluetoothPermissionGranted: boolean;
+  requestBluetoothPermissions: () => Promise<boolean>;
+
+  pairedDevices: PairedDevice[];
+  refreshPairedDevices: () => Promise<void>;
+
+  selectedDevice: PairedDevice | null;
+  connectionStatus: EngineStatus;
+  connect: (device: PairedDevice) => Promise<void>;
+  disconnect: () => Promise<void>;
+  connectionError: string | null;
+
+  temperatureC: number | null;
+  lastUpdated: number | null;
+
+  thresholdC: number;
+  setThresholdC: (value: number) => void;
+  pollIntervalMs: number;
+  setPollIntervalMs: (value: number) => void;
+
+  isMonitoring: boolean;
+  startMonitoring: () => Promise<void>;
+  stopMonitoring: () => Promise<void>;
+
+  alertHistory: AlertLogEntry[];
+  clearAlertHistory: () => void;
+
+  notificationsEnabled: boolean;
+  requestNotificationPermission: () => Promise<boolean>;
+}
+
+const STORAGE_KEYS = {
+  device: "obd:selectedDevice",
+  threshold: "obd:thresholdC",
+  interval: "obd:pollIntervalMs",
+  alerts: "obd:alertHistory",
+};
+
+const DEFAULT_THRESHOLD_C = 105;
+const DEFAULT_POLL_INTERVAL_MS = 3000;
+const MAX_ALERT_HISTORY = 30;
+
+const ObdContext = createContext<ObdContextValue | null>(null);
+
+export function ObdProvider({ children }: { children: React.ReactNode }) {
+  const [pairedDevices, setPairedDevices] = useState<PairedDevice[]>([]);
+  const [selectedDevice, setSelectedDevice] = useState<PairedDevice | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<EngineStatus>("disconnected");
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+
+  const [temperatureC, setTemperatureC] = useState<number | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+
+  const [thresholdC, setThresholdCState] = useState(DEFAULT_THRESHOLD_C);
+  const [pollIntervalMs, setPollIntervalMsState] = useState(DEFAULT_POLL_INTERVAL_MS);
+
+  const [isMonitoring, setIsMonitoring] = useState(false);
+  const [alertHistory, setAlertHistory] = useState<AlertLogEntry[]>([]);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [bluetoothPermissionGranted, setBluetoothPermissionGranted] = useState(false);
+
+  const thresholdRef = useRef(thresholdC);
+  const pollIntervalRef = useRef(pollIntervalMs);
+  thresholdRef.current = thresholdC;
+  pollIntervalRef.current = pollIntervalMs;
+
+  // Hydrate persisted settings.
+  useEffect(() => {
+    (async () => {
+      try {
+        const [deviceRaw, thresholdRaw, intervalRaw, alertsRaw, notifStatus] = await Promise.all([
+          AsyncStorage.getItem(STORAGE_KEYS.device),
+          AsyncStorage.getItem(STORAGE_KEYS.threshold),
+          AsyncStorage.getItem(STORAGE_KEYS.interval),
+          AsyncStorage.getItem(STORAGE_KEYS.alerts),
+          Notifications.getPermissionsAsync(),
+        ]);
+        if (deviceRaw) setSelectedDevice(JSON.parse(deviceRaw));
+        if (thresholdRaw) setThresholdCState(Number(thresholdRaw));
+        if (intervalRaw) setPollIntervalMsState(Number(intervalRaw));
+        if (alertsRaw) setAlertHistory(JSON.parse(alertsRaw));
+        setNotificationsEnabled(notifStatus.granted);
+      } catch {
+        // ignore corrupt storage — defaults already applied
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = obdEngine.onStatus((status) => {
+      setConnectionStatus(status);
+      if (status === "error") {
+        setConnectionError("Cihaza bağlanılamadı. Adaptörün açık ve eşleşmiş olduğundan emin olun.");
+      } else {
+        setConnectionError(null);
+      }
+    });
+    const unsubscribeReading = obdEngine.onReading((temp) => {
+      if (temp !== null) {
+        setTemperatureC(temp);
+        setLastUpdated(Date.now());
+      }
+    });
+    return () => {
+      unsubscribe();
+      unsubscribeReading();
+    };
+  }, []);
+
+  const requestBluetoothPermissions = useCallback(async () => {
+    const granted = await obdEngine.requestBluetoothPermissions();
+    setBluetoothPermissionGranted(granted);
+    return granted;
+  }, []);
+
+  const refreshPairedDevices = useCallback(async () => {
+    const granted = await obdEngine.requestBluetoothPermissions();
+    setBluetoothPermissionGranted(granted);
+    if (!granted) return;
+    const devices = await obdEngine.getBondedDevices();
+    setPairedDevices(devices);
+  }, []);
+
+  useEffect(() => {
+    refreshPairedDevices();
+  }, [refreshPairedDevices]);
+
+  const connect = useCallback(async (device: PairedDevice) => {
+    setConnectionError(null);
+    try {
+      await obdEngine.connect(device.address);
+      setSelectedDevice(device);
+      await AsyncStorage.setItem(STORAGE_KEYS.device, JSON.stringify(device));
+    } catch (err) {
+      setConnectionError(err instanceof Error ? err.message : "Bağlantı hatası.");
+      throw err;
+    }
+  }, []);
+
+  const disconnect = useCallback(async () => {
+    await obdEngine.disconnect();
+    setTemperatureC(null);
+    setLastUpdated(null);
+  }, []);
+
+  const persistAlerts = useCallback((entries: AlertLogEntry[]) => {
+    AsyncStorage.setItem(STORAGE_KEYS.alerts, JSON.stringify(entries)).catch(() => {});
+  }, []);
+
+  const handleAlert = useCallback(
+    (temp: number) => {
+      setAlertHistory((prev) => {
+        const next = [
+          { id: `${Date.now()}`, temperatureC: temp, timestamp: Date.now() },
+          ...prev,
+        ].slice(0, MAX_ALERT_HISTORY);
+        persistAlerts(next);
+        return next;
+      });
+    },
+    [persistAlerts],
+  );
+
+  const handleReading = useCallback((temp: number | null) => {
+    if (temp !== null) {
+      setTemperatureC(temp);
+      setLastUpdated(Date.now());
+    }
+  }, []);
+
+  const startMonitoring = useCallback(async () => {
+    await startBackgroundMonitoring({
+      thresholdC: thresholdRef,
+      pollIntervalMs: pollIntervalRef,
+      onReading: handleReading,
+      onAlert: handleAlert,
+    });
+    setIsMonitoring(true);
+  }, [handleAlert, handleReading]);
+
+  const stopMonitoring = useCallback(async () => {
+    await stopBackgroundMonitoring();
+    setIsMonitoring(false);
+  }, []);
+
+  // Stop monitoring automatically if the device disconnects.
+  useEffect(() => {
+    if (connectionStatus === "disconnected" && isMonitoring) {
+      stopMonitoring();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectionStatus]);
+
+  const setThresholdC = useCallback((value: number) => {
+    setThresholdCState(value);
+    AsyncStorage.setItem(STORAGE_KEYS.threshold, String(value)).catch(() => {});
+  }, []);
+
+  const setPollIntervalMs = useCallback((value: number) => {
+    setPollIntervalMsState(value);
+    AsyncStorage.setItem(STORAGE_KEYS.interval, String(value)).catch(() => {});
+  }, []);
+
+  const clearAlertHistory = useCallback(() => {
+    setAlertHistory([]);
+    persistAlerts([]);
+  }, [persistAlerts]);
+
+  const requestNotificationPermission = useCallback(async () => {
+    const result = await Notifications.requestPermissionsAsync();
+    setNotificationsEnabled(result.granted);
+    return result.granted;
+  }, []);
+
+  // Pause polling cadence changes don't need an app-state listener since the
+  // background task reads live refs each loop iteration.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", () => {});
+    return () => sub.remove();
+  }, []);
+
+  const value = useMemo<ObdContextValue>(
+    () => ({
+      bluetoothAvailable: isBluetoothClassicAvailable(),
+      backgroundAvailable: isBackgroundServiceAvailable(),
+      unavailableReason: bluetoothUnavailableReason(),
+      bluetoothPermissionGranted,
+      requestBluetoothPermissions,
+      pairedDevices,
+      refreshPairedDevices,
+      selectedDevice,
+      connectionStatus,
+      connect,
+      disconnect,
+      connectionError,
+      temperatureC,
+      lastUpdated,
+      thresholdC,
+      setThresholdC,
+      pollIntervalMs,
+      setPollIntervalMs,
+      isMonitoring,
+      startMonitoring,
+      stopMonitoring,
+      alertHistory,
+      clearAlertHistory,
+      notificationsEnabled,
+      requestNotificationPermission,
+    }),
+    [
+      bluetoothPermissionGranted,
+      requestBluetoothPermissions,
+      pairedDevices,
+      refreshPairedDevices,
+      selectedDevice,
+      connectionStatus,
+      connect,
+      disconnect,
+      connectionError,
+      temperatureC,
+      lastUpdated,
+      thresholdC,
+      setThresholdC,
+      pollIntervalMs,
+      setPollIntervalMs,
+      isMonitoring,
+      startMonitoring,
+      stopMonitoring,
+      alertHistory,
+      clearAlertHistory,
+      notificationsEnabled,
+      requestNotificationPermission,
+    ],
+  );
+
+  return <ObdContext.Provider value={value}>{children}</ObdContext.Provider>;
+}
+
+export function useObd() {
+  const ctx = useContext(ObdContext);
+  if (!ctx) throw new Error("useObd must be used within an ObdProvider");
+  return ctx;
+}
