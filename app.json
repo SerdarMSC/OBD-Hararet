@@ -14,7 +14,8 @@
       "backgroundColor": "#12151a"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "com.obdsicaklik.izleyici"
     },
     "android": {
       "package": "com.obdsicaklik.izleyici",
