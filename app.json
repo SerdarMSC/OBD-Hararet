@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "OBD Sicaklik Izleyici",
-    "slug": "mobile",
+    "slug": "obd-hararet",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -14,7 +14,8 @@
       "backgroundColor": "#12151a"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "com.obdsicaklik.izleyici"
     },
     "android": {
       "package": "com.obdsicaklik.izleyici",
@@ -40,6 +41,7 @@
       "favicon": "./assets/images/icon.png"
     },
     "plugins": [
+      "./plugins/withAndroidBuildConfig",
       [
         "expo-router",
         {
@@ -59,6 +61,14 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {
+        "origin": "https://replit.com/"
+      },
+      "eas": {
+        "projectId": "9e33fee8-7e74-4cd5-9c94-5c5e0604b605"
+      }
     }
   }
 }
