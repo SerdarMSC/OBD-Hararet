@@ -7,15 +7,15 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useObd } from "@/context/ObdContext";
 import { useColors } from "@/hooks/useColors";
 
-const THRESHOLD_STEP = 1;
+const THRESHOLD_STEP = 5;
 const MIN_THRESHOLD = 70;
 const MAX_THRESHOLD = 130;
 
 const INTERVAL_OPTIONS = [
   { label: "2 sn", value: 2000 },
+  { label: "3 sn", value: 3000 },
   { label: "5 sn", value: 5000 },
   { label: "10 sn", value: 10000 },
-  { label: "20 sn", value: 20000 },
 ];
 
 const RESPONSE_TIMEOUT_OPTIONS = [
