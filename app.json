@@ -1,13 +1,13 @@
 {
   "expo": {
-    "name": "OBD Sıcaklık İzleyici",
+    "name": "OBD Sicaklik Izleyici",
     "slug": "obd-hararet",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "mobile",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "splash": {
       "image": "./assets/images/icon.png",
       "resizeMode": "contain",
@@ -41,7 +41,6 @@
       "favicon": "./assets/images/icon.png"
     },
     "plugins": [
-      "./plugins/withAndroidBuildConfig",
       [
         "expo-router",
         {
