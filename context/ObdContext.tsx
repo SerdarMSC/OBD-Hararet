@@ -13,6 +13,8 @@ import { AppState } from "react-native";
 
 import {
   bluetoothUnavailableReason,
+  DEFAULT_CONNECT_TIMEOUT_MS,
+  DEFAULT_RESPONSE_TIMEOUT_MS,
   isBluetoothClassicAvailable,
   obdEngine,
   type EngineStatus,
@@ -55,6 +57,16 @@ interface ObdContextValue {
   pollIntervalMs: number;
   setPollIntervalMs: (value: number) => void;
 
+  responseTimeoutMs: number;
+  setResponseTimeoutMs: (value: number) => void;
+  connectTimeoutMs: number;
+  setConnectTimeoutMs: (value: number) => void;
+
+  autoConnectLastDevice: boolean;
+  setAutoConnectLastDevice: (value: boolean) => void;
+  autoBackgroundOnConnect: boolean;
+  setAutoBackgroundOnConnect: (value: boolean) => void;
+
   isMonitoring: boolean;
   startMonitoring: () => Promise<void>;
   stopMonitoring: () => Promise<void>;
@@ -71,6 +83,10 @@ const STORAGE_KEYS = {
   threshold: "obd:thresholdC",
   interval: "obd:pollIntervalMs",
   alerts: "obd:alertHistory",
+  responseTimeout: "obd:responseTimeoutMs",
+  connectTimeout: "obd:connectTimeoutMs",
+  autoConnect: "obd:autoConnectLastDevice",
+  autoBackground: "obd:autoBackgroundOnConnect",
 };
 
 const DEFAULT_THRESHOLD_C = 105;
@@ -90,11 +106,17 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
 
   const [thresholdC, setThresholdCState] = useState(DEFAULT_THRESHOLD_C);
   const [pollIntervalMs, setPollIntervalMsState] = useState(DEFAULT_POLL_INTERVAL_MS);
+  const [responseTimeoutMs, setResponseTimeoutMsState] = useState(DEFAULT_RESPONSE_TIMEOUT_MS);
+  const [connectTimeoutMs, setConnectTimeoutMsState] = useState(DEFAULT_CONNECT_TIMEOUT_MS);
+  const [autoConnectLastDevice, setAutoConnectLastDeviceState] = useState(false);
+  const [autoBackgroundOnConnect, setAutoBackgroundOnConnectState] = useState(false);
 
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [alertHistory, setAlertHistory] = useState<AlertLogEntry[]>([]);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [bluetoothPermissionGranted, setBluetoothPermissionGranted] = useState(false);
+  const [settingsHydrated, setSettingsHydrated] = useState(false);
+  const autoConnectAttempted = useRef(false);
 
   const thresholdRef = useRef(thresholdC);
   const pollIntervalRef = useRef(pollIntervalMs);
@@ -105,20 +127,48 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
-        const [deviceRaw, thresholdRaw, intervalRaw, alertsRaw, notifStatus] = await Promise.all([
+        const [
+          deviceRaw,
+          thresholdRaw,
+          intervalRaw,
+          alertsRaw,
+          notifStatus,
+          responseTimeoutRaw,
+          connectTimeoutRaw,
+          autoConnectRaw,
+          autoBackgroundRaw,
+        ] = await Promise.all([
           AsyncStorage.getItem(STORAGE_KEYS.device),
           AsyncStorage.getItem(STORAGE_KEYS.threshold),
           AsyncStorage.getItem(STORAGE_KEYS.interval),
           AsyncStorage.getItem(STORAGE_KEYS.alerts),
           Notifications.getPermissionsAsync(),
+          AsyncStorage.getItem(STORAGE_KEYS.responseTimeout),
+          AsyncStorage.getItem(STORAGE_KEYS.connectTimeout),
+          AsyncStorage.getItem(STORAGE_KEYS.autoConnect),
+          AsyncStorage.getItem(STORAGE_KEYS.autoBackground),
         ]);
         if (deviceRaw) setSelectedDevice(JSON.parse(deviceRaw));
         if (thresholdRaw) setThresholdCState(Number(thresholdRaw));
         if (intervalRaw) setPollIntervalMsState(Number(intervalRaw));
         if (alertsRaw) setAlertHistory(JSON.parse(alertsRaw));
         setNotificationsEnabled(notifStatus.granted);
+        if (responseTimeoutRaw) {
+          const value = Number(responseTimeoutRaw);
+          setResponseTimeoutMsState(value);
+          obdEngine.setResponseTimeoutMs(value);
+        }
+        if (connectTimeoutRaw) {
+          const value = Number(connectTimeoutRaw);
+          setConnectTimeoutMsState(value);
+          obdEngine.setConnectTimeoutMs(value);
+        }
+        if (autoConnectRaw) setAutoConnectLastDeviceState(autoConnectRaw === "1");
+        if (autoBackgroundRaw) setAutoBackgroundOnConnectState(autoBackgroundRaw === "1");
       } catch {
         // ignore corrupt storage — defaults already applied
+      } finally {
+        setSettingsHydrated(true);
       }
     })();
   }, []);
@@ -174,6 +224,19 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // Auto-connect to the last used adapter on startup, once settings are
+  // hydrated and Bluetooth permissions/devices are ready.
+  useEffect(() => {
+    if (!settingsHydrated || autoConnectAttempted.current) return;
+    if (!autoConnectLastDevice || !selectedDevice) return;
+    if (!isBluetoothClassicAvailable() || !bluetoothPermissionGranted) return;
+    if (connectionStatus !== "disconnected") return;
+    autoConnectAttempted.current = true;
+    connect(selectedDevice).catch(() => {
+      // connectionError is already set by connect(); nothing else to do here
+    });
+  }, [settingsHydrated, autoConnectLastDevice, selectedDevice, bluetoothPermissionGranted, connectionStatus, connect]);
+
   const disconnect = useCallback(async () => {
     await obdEngine.disconnect();
     setTemperatureC(null);
@@ -228,6 +291,16 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionStatus]);
 
+  // Automatically switch to background monitoring once connected, if enabled.
+  useEffect(() => {
+    if (connectionStatus === "connected" && autoBackgroundOnConnect && !isMonitoring) {
+      startMonitoring().catch(() => {
+        // background service may be unavailable in this environment — ignore
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectionStatus, autoBackgroundOnConnect]);
+
   const setThresholdC = useCallback((value: number) => {
     setThresholdCState(value);
     AsyncStorage.setItem(STORAGE_KEYS.threshold, String(value)).catch(() => {});
@@ -236,6 +309,28 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
   const setPollIntervalMs = useCallback((value: number) => {
     setPollIntervalMsState(value);
     AsyncStorage.setItem(STORAGE_KEYS.interval, String(value)).catch(() => {});
+  }, []);
+
+  const setResponseTimeoutMs = useCallback((value: number) => {
+    setResponseTimeoutMsState(value);
+    obdEngine.setResponseTimeoutMs(value);
+    AsyncStorage.setItem(STORAGE_KEYS.responseTimeout, String(value)).catch(() => {});
+  }, []);
+
+  const setConnectTimeoutMs = useCallback((value: number) => {
+    setConnectTimeoutMsState(value);
+    obdEngine.setConnectTimeoutMs(value);
+    AsyncStorage.setItem(STORAGE_KEYS.connectTimeout, String(value)).catch(() => {});
+  }, []);
+
+  const setAutoConnectLastDevice = useCallback((value: boolean) => {
+    setAutoConnectLastDeviceState(value);
+    AsyncStorage.setItem(STORAGE_KEYS.autoConnect, value ? "1" : "0").catch(() => {});
+  }, []);
+
+  const setAutoBackgroundOnConnect = useCallback((value: boolean) => {
+    setAutoBackgroundOnConnectState(value);
+    AsyncStorage.setItem(STORAGE_KEYS.autoBackground, value ? "1" : "0").catch(() => {});
   }, []);
 
   const clearAlertHistory = useCallback(() => {
@@ -276,6 +371,14 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
       setThresholdC,
       pollIntervalMs,
       setPollIntervalMs,
+      responseTimeoutMs,
+      setResponseTimeoutMs,
+      connectTimeoutMs,
+      setConnectTimeoutMs,
+      autoConnectLastDevice,
+      setAutoConnectLastDevice,
+      autoBackgroundOnConnect,
+      setAutoBackgroundOnConnect,
       isMonitoring,
       startMonitoring,
       stopMonitoring,
@@ -297,6 +400,14 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
       temperatureC,
       lastUpdated,
       thresholdC,
+      responseTimeoutMs,
+      setResponseTimeoutMs,
+      connectTimeoutMs,
+      setConnectTimeoutMs,
+      autoConnectLastDevice,
+      setAutoConnectLastDevice,
+      autoBackgroundOnConnect,
+      setAutoBackgroundOnConnect,
       setThresholdC,
       pollIntervalMs,
       setPollIntervalMs,
