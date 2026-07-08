@@ -65,6 +65,13 @@ type StatusListener = (status: EngineStatus) => void;
 
 export type EngineStatus = "disconnected" | "connecting" | "connected" | "error";
 
+export const DEFAULT_RESPONSE_TIMEOUT_MS = 4000;
+export const DEFAULT_CONNECT_TIMEOUT_MS = 10000;
+export const MIN_RESPONSE_TIMEOUT_MS = 1000;
+export const MAX_RESPONSE_TIMEOUT_MS = 15000;
+export const MIN_CONNECT_TIMEOUT_MS = 5000;
+export const MAX_CONNECT_TIMEOUT_MS = 30000;
+
 class ObdEngineSingleton {
   private device: NativeDevice | null = null;
   private dataListener: { remove: () => void } | null = null;
@@ -73,6 +80,16 @@ class ObdEngineSingleton {
   private readingListeners = new Set<ReadingListener>();
   private statusListeners = new Set<StatusListener>();
   private status: EngineStatus = "disconnected";
+  private responseTimeoutMs = DEFAULT_RESPONSE_TIMEOUT_MS;
+  private connectTimeoutMs = DEFAULT_CONNECT_TIMEOUT_MS;
+
+  setResponseTimeoutMs(value: number) {
+    this.responseTimeoutMs = value;
+  }
+
+  setConnectTimeoutMs(value: number) {
+    this.connectTimeoutMs = value;
+  }
 
   onReading(listener: ReadingListener) {
     this.readingListeners.add(listener);
@@ -147,9 +164,11 @@ class ObdEngineSingleton {
     }
     this.setStatus("connecting");
     try {
-      const device = await nativeModule.connectToDevice(address, {
-        DELIMITER: ">",
-      });
+      const device = await this.withTimeout(
+        nativeModule.connectToDevice(address, { DELIMITER: ">" }),
+        this.connectTimeoutMs,
+        "Adaptöre bağlanılamadı (zaman aşımı).",
+      );
       this.device = device;
       this.buffer = "";
       this.dataListener = device.onDataReceived((event) => this.handleData(event.data));
@@ -206,7 +225,22 @@ class ObdEngineSingleton {
           this.pendingResolve = null;
           reject(new Error("Adaptörden yanıt alınamadı (zaman aşımı)."));
         }
-      }, 4000);
+      }, this.responseTimeoutMs);
+    });
+  }
+
+  private withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      promise
+        .then((value) => {
+          clearTimeout(timer);
+          resolve(value);
+        })
+        .catch((err) => {
+          clearTimeout(timer);
+          reject(err);
+        });
     });
   }
 
