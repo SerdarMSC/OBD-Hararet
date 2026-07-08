@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import React, { useCallback } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useObd } from "@/context/ObdContext";
@@ -12,10 +12,24 @@ const MIN_THRESHOLD = 70;
 const MAX_THRESHOLD = 130;
 
 const INTERVAL_OPTIONS = [
-  { label: "3 sn", value: 3000 },
+  { label: "2 sn", value: 2000 },
+  { label: "5 sn", value: 5000 },
+  { label: "10 sn", value: 10000 },
+  { label: "20 sn", value: 20000 },
+];
+
+const RESPONSE_TIMEOUT_OPTIONS = [
+  { label: "2 sn", value: 2000 },
+  { label: "4 sn", value: 4000 },
+  { label: "6 sn", value: 6000 },
+  { label: "10 sn", value: 10000 },
+];
+
+const CONNECT_TIMEOUT_OPTIONS = [
+  { label: "5 sn", value: 5000 },
   { label: "10 sn", value: 10000 },
   { label: "15 sn", value: 15000 },
-  { label: "30 sn", value: 30000 },
+  { label: "20 sn", value: 20000 },
 ];
 
 export default function SettingsScreen() {
@@ -26,6 +40,15 @@ export default function SettingsScreen() {
     setThresholdC,
     pollIntervalMs,
     setPollIntervalMs,
+    responseTimeoutMs,
+    setResponseTimeoutMs,
+    connectTimeoutMs,
+    setConnectTimeoutMs,
+    autoConnectLastDevice,
+    setAutoConnectLastDevice,
+    autoBackgroundOnConnect,
+    setAutoBackgroundOnConnect,
+    selectedDevice,
     notificationsEnabled,
     requestNotificationPermission,
     clearAlertHistory,
@@ -114,6 +137,122 @@ export default function SettingsScreen() {
                 </Pressable>
               );
             })}
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>Adaptör zaman aşımı</Text>
+        <View style={[styles.card, { backgroundColor: colors.card, borderRadius: colors.radius }]}>
+          <Text style={[styles.notificationTitle, { color: colors.cardForeground }]}>Yanıt bekleme süresi</Text>
+          <View style={styles.intervalRow}>
+            {RESPONSE_TIMEOUT_OPTIONS.map((option) => {
+              const active = responseTimeoutMs === option.value;
+              return (
+                <Pressable
+                  key={option.value}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setResponseTimeoutMs(option.value);
+                  }}
+                  style={({ pressed }) => [
+                    styles.intervalChip,
+                    {
+                      backgroundColor: active ? colors.primary : colors.secondary,
+                      opacity: pressed ? 0.8 : 1,
+                    },
+                  ]}
+                >
+                  <Text style={{ color: active ? colors.primaryForeground : colors.secondaryForeground, fontWeight: "600" }}>
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={[styles.helperText, { color: colors.mutedForeground }]}>
+            Adaptör bir komuta bu süre içinde yanıt vermezse "zaman aşımı" hatası verilir. Sinyal zayıfsa veya adaptör
+            yavaşsa bu süreyi artırın.
+          </Text>
+
+          <View style={styles.divider} />
+
+          <Text style={[styles.notificationTitle, { color: colors.cardForeground }]}>Bağlantı bekleme süresi</Text>
+          <View style={styles.intervalRow}>
+            {CONNECT_TIMEOUT_OPTIONS.map((option) => {
+              const active = connectTimeoutMs === option.value;
+              return (
+                <Pressable
+                  key={option.value}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setConnectTimeoutMs(option.value);
+                  }}
+                  style={({ pressed }) => [
+                    styles.intervalChip,
+                    {
+                      backgroundColor: active ? colors.primary : colors.secondary,
+                      opacity: pressed ? 0.8 : 1,
+                    },
+                  ]}
+                >
+                  <Text style={{ color: active ? colors.primaryForeground : colors.secondaryForeground, fontWeight: "600" }}>
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={[styles.helperText, { color: colors.mutedForeground }]}>
+            Adaptöre bağlanma denemesi bu süre içinde tamamlanmazsa iptal edilir.
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>Otomasyon</Text>
+        <View style={[styles.card, { backgroundColor: colors.card, borderRadius: colors.radius }]}>
+          <View style={styles.notificationRow}>
+            <View style={styles.notificationInfo}>
+              <Text style={[styles.notificationTitle, { color: colors.cardForeground }]}>
+                Açılışta otomatik bağlan
+              </Text>
+              <Text style={[styles.helperText, { color: colors.mutedForeground }]}>
+                {selectedDevice
+                  ? `Uygulama açıldığında "${selectedDevice.name}" adaptörüne otomatik bağlanılır.`
+                  : "Önce bir adaptöre bağlanmalısınız."}
+              </Text>
+            </View>
+            <Switch
+              value={autoConnectLastDevice}
+              onValueChange={(value) => {
+                Haptics.selectionAsync();
+                setAutoConnectLastDevice(value);
+              }}
+              disabled={!selectedDevice}
+              trackColor={{ true: colors.primary, false: colors.secondary }}
+            />
+          </View>
+
+          <View style={styles.divider} />
+
+          <View style={styles.notificationRow}>
+            <View style={styles.notificationInfo}>
+              <Text style={[styles.notificationTitle, { color: colors.cardForeground }]}>
+                Bağlanınca arka plana geç
+              </Text>
+              <Text style={[styles.helperText, { color: colors.mutedForeground }]}>
+                Adaptöre bağlantı kurulduğunda izleme otomatik olarak arka planda başlar.
+              </Text>
+            </View>
+            <Switch
+              value={autoBackgroundOnConnect}
+              onValueChange={(value) => {
+                Haptics.selectionAsync();
+                setAutoBackgroundOnConnect(value);
+              }}
+              trackColor={{ true: colors.primary, false: colors.secondary }}
+            />
           </View>
         </View>
       </View>
@@ -223,6 +362,12 @@ const styles = StyleSheet.create({
   },
   notificationInfo: {
     flex: 1,
+    paddingRight: 12,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: "rgba(128,128,128,0.15)",
+    marginVertical: 4,
   },
   notificationTitle: {
     fontSize: 15,
