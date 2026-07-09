@@ -180,10 +180,21 @@ class ObdEngineSingleton {
       // Cheap ELM327 clones sometimes need a short settle delay after the
       // RFCOMM socket connects, before they're ready to receive the first
       // command. Sending immediately can cause the first byte(s) to be lost.
-      await sleep(350);
+      await sleep(1500);
 
       for (const command of ELM327_INIT_COMMANDS) {
-        await this.sendRaw(command);
+
+        console.log("INIT >", command);
+    
+        const response = await this.sendRaw(command);
+    
+        console.log("INIT <", response);
+    
+        if (command === "ATZ") {
+            await sleep(1500);
+        } else {
+            await sleep(150);
+        }
       }
 
       this.setStatus("connected");
@@ -236,19 +247,37 @@ class ObdEngineSingleton {
         // Transient read errors can happen between polls; keep trying
         // until the deadline instead of failing immediately.
       }
-      await sleep(120);
+      await sleep(30);
     }
 
     throw new Error("Adaptörden yanıt alınamadı (zaman aşımı).");
   }
 
-  private async sendRaw(command: string): Promise<string> {
-    if (!this.device) {
-      throw new Error("Bağlı cihaz yok.");
-    }
-    await this.device.write(`${command}\r`);
-    return this.pollForResponse(this.responseTimeoutMs);
+private async sendRaw(command: string): Promise<string> {
+  if (!this.device) {
+    throw new Error("Bağlı cihaz yok.");
   }
+
+  // Önce eski buffer'ı temizle
+  try {
+    while ((await this.device.available()) > 0) {
+      await this.device.read();
+    }
+  } catch {}
+
+  // Bazı klonlar CRLF bekliyor
+  await this.device.write(`${command}\r\n`);
+
+  // Yazma sonrası kısa bekleme
+  await sleep(80);
+
+  const response = await this.pollForResponse(this.responseTimeoutMs);
+
+  console.log("OBD >", command);
+  console.log("ELM <", response);
+
+  return response;
+}
 
   private withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
     return new Promise((resolve, reject) => {
