@@ -99,7 +99,7 @@ export default function DashboardScreen() {
       >
         <View style={styles.headerRow}>
           <View>
-            <Text style={[styles.title, { color: colors.foreground }]}>Motor İzleyici</Text>
+            <Text style={[styles.title, { color: colors.foreground }]}>Hararet İzleyici</Text>
             <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>ELM327 · OBD-II</Text>
           </View>
           <Pressable
