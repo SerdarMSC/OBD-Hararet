@@ -25,6 +25,11 @@ import {
   startBackgroundMonitoring,
   stopBackgroundMonitoring,
 } from "@/lib/backgroundTask";
+import {
+  DEFAULT_ALERT_SOUND_ID,
+  ensureAlertSoundChannels,
+  previewAlertSound,
+} from "@/lib/alertSounds";
 
 export interface AlertLogEntry {
   id: string;
@@ -76,6 +81,10 @@ interface ObdContextValue {
 
   notificationsEnabled: boolean;
   requestNotificationPermission: () => Promise<boolean>;
+
+  alertSoundId: string;
+  setAlertSoundId: (value: string) => void;
+  previewSelectedAlertSound: () => Promise<void>;
 }
 
 const STORAGE_KEYS = {
@@ -87,6 +96,7 @@ const STORAGE_KEYS = {
   connectTimeout: "obd:connectTimeoutMs",
   autoConnect: "obd:autoConnectLastDevice",
   autoBackground: "obd:autoBackgroundOnConnect",
+  alertSound: "obd:alertSoundId",
 };
 
 const DEFAULT_THRESHOLD_C = 105;
@@ -110,6 +120,7 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
   const [connectTimeoutMs, setConnectTimeoutMsState] = useState(DEFAULT_CONNECT_TIMEOUT_MS);
   const [autoConnectLastDevice, setAutoConnectLastDeviceState] = useState(false);
   const [autoBackgroundOnConnect, setAutoBackgroundOnConnectState] = useState(false);
+  const [alertSoundId, setAlertSoundIdState] = useState(DEFAULT_ALERT_SOUND_ID);
 
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [alertHistory, setAlertHistory] = useState<AlertLogEntry[]>([]);
@@ -120,8 +131,10 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
 
   const thresholdRef = useRef(thresholdC);
   const pollIntervalRef = useRef(pollIntervalMs);
+  const alertSoundIdRef = useRef(alertSoundId);
   thresholdRef.current = thresholdC;
   pollIntervalRef.current = pollIntervalMs;
+  alertSoundIdRef.current = alertSoundId;
 
   // Hydrate persisted settings.
   useEffect(() => {
@@ -137,6 +150,7 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
           connectTimeoutRaw,
           autoConnectRaw,
           autoBackgroundRaw,
+          alertSoundRaw,
         ] = await Promise.all([
           AsyncStorage.getItem(STORAGE_KEYS.device),
           AsyncStorage.getItem(STORAGE_KEYS.threshold),
@@ -147,7 +161,9 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem(STORAGE_KEYS.connectTimeout),
           AsyncStorage.getItem(STORAGE_KEYS.autoConnect),
           AsyncStorage.getItem(STORAGE_KEYS.autoBackground),
+          AsyncStorage.getItem(STORAGE_KEYS.alertSound),
         ]);
+        ensureAlertSoundChannels().catch(() => {});
         if (deviceRaw) setSelectedDevice(JSON.parse(deviceRaw));
         if (thresholdRaw) setThresholdCState(Number(thresholdRaw));
         if (intervalRaw) setPollIntervalMsState(Number(intervalRaw));
@@ -165,6 +181,7 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
         }
         if (autoConnectRaw) setAutoConnectLastDeviceState(autoConnectRaw === "1");
         if (autoBackgroundRaw) setAutoBackgroundOnConnectState(autoBackgroundRaw === "1");
+        if (alertSoundRaw) setAlertSoundIdState(alertSoundRaw);
       } catch {
         // ignore corrupt storage — defaults already applied
       } finally {
@@ -272,6 +289,7 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
     await startBackgroundMonitoring({
       thresholdC: thresholdRef,
       pollIntervalMs: pollIntervalRef,
+      alertSoundId: alertSoundIdRef,
       onReading: handleReading,
       onAlert: handleAlert,
     });
@@ -333,6 +351,15 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.setItem(STORAGE_KEYS.autoBackground, value ? "1" : "0").catch(() => {});
   }, []);
 
+  const setAlertSoundId = useCallback((value: string) => {
+    setAlertSoundIdState(value);
+    AsyncStorage.setItem(STORAGE_KEYS.alertSound, value).catch(() => {});
+  }, []);
+
+  const previewSelectedAlertSound = useCallback(async () => {
+    await previewAlertSound(alertSoundIdRef.current);
+  }, []);
+
   const clearAlertHistory = useCallback(() => {
     setAlertHistory([]);
     persistAlerts([]);
@@ -386,6 +413,9 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
       clearAlertHistory,
       notificationsEnabled,
       requestNotificationPermission,
+      alertSoundId,
+      setAlertSoundId,
+      previewSelectedAlertSound,
     }),
     [
       bluetoothPermissionGranted,
@@ -418,6 +448,9 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
       clearAlertHistory,
       notificationsEnabled,
       requestNotificationPermission,
+      alertSoundId,
+      setAlertSoundId,
+      previewSelectedAlertSound,
     ],
   );
 
