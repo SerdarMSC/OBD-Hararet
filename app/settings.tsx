@@ -6,16 +6,17 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useObd } from "@/context/ObdContext";
 import { useColors } from "@/hooks/useColors";
+import { ALERT_SOUND_OPTIONS } from "@/lib/alertSounds";
 
-const THRESHOLD_STEP = 1;
+const THRESHOLD_STEP = 5;
 const MIN_THRESHOLD = 70;
 const MAX_THRESHOLD = 130;
 
 const INTERVAL_OPTIONS = [
+  { label: "2 sn", value: 2000 },
   { label: "3 sn", value: 3000 },
+  { label: "5 sn", value: 5000 },
   { label: "10 sn", value: 10000 },
-  { label: "15 sn", value: 15000 },
-  { label: "20 sn", value: 20000 },
 ];
 
 const RESPONSE_TIMEOUT_OPTIONS = [
@@ -52,6 +53,9 @@ export default function SettingsScreen() {
     notificationsEnabled,
     requestNotificationPermission,
     clearAlertHistory,
+    alertSoundId,
+    setAlertSoundId,
+    previewSelectedAlertSound,
   } = useObd();
 
   const adjustThreshold = useCallback(
@@ -76,6 +80,14 @@ export default function SettingsScreen() {
       { text: "Sil", style: "destructive", onPress: clearAlertHistory },
     ]);
   }, [clearAlertHistory]);
+
+  const handlePreviewSound = useCallback(async () => {
+    try {
+      await previewSelectedAlertSound();
+    } catch {
+      Alert.alert("Önizleme başarısız", "Bildirim izni verilmemiş olabilir.");
+    }
+  }, [previewSelectedAlertSound]);
 
   return (
     <ScrollView
@@ -280,6 +292,45 @@ export default function SettingsScreen() {
               <Feather name="check-circle" size={20} color={colors.success} />
             )}
           </View>
+
+          <View style={styles.divider} />
+
+          <Text style={[styles.notificationTitle, { color: colors.cardForeground }]}>Uyarı sesi</Text>
+          <View style={styles.intervalRow}>
+            {ALERT_SOUND_OPTIONS.map((option) => {
+              const active = alertSoundId === option.id;
+              return (
+                <Pressable
+                  key={option.id}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setAlertSoundId(option.id);
+                  }}
+                  style={({ pressed }) => [
+                    styles.intervalChip,
+                    {
+                      backgroundColor: active ? colors.primary : colors.secondary,
+                      opacity: pressed ? 0.8 : 1,
+                    },
+                  ]}
+                >
+                  <Text style={{ color: active ? colors.primaryForeground : colors.secondaryForeground, fontWeight: "600" }}>
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Pressable
+            onPress={handlePreviewSound}
+            style={({ pressed }) => [
+              styles.previewButton,
+              { backgroundColor: colors.secondary, opacity: pressed ? 0.8 : 1 },
+            ]}
+          >
+            <Feather name="volume-2" size={16} color={colors.secondaryForeground} />
+            <Text style={{ color: colors.secondaryForeground, fontWeight: "600" }}>Sesi dene</Text>
+          </Pressable>
         </View>
       </View>
 
@@ -377,6 +428,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 12,
+  },
+  previewButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 10,
+    borderRadius: 12,
+    marginTop: 4,
   },
   dangerButton: {
     flexDirection: "row",
