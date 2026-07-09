@@ -1,0 +1,59 @@
+name: Build Android APK
+
+# Runs on every push to main, and can also be triggered manually from the
+# Actions tab ("Run workflow" button). This builds a standalone, installable
+# APK directly with Gradle — it does not use EAS Build at all, so it is not
+# affected by Expo's EAS Build quota.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.14.0"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --include=dev
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Accept Android SDK licenses
+        run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+
+      - name: Install required Android NDK
+        run: $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;27.1.12297006" "cmake;3.22.1"
+
+      - name: Run Expo prebuild (generate native android project)
+        run: npx expo prebuild --platform android --no-install
+        env:
+          NODE_ENV: production
+
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
+
+      - name: Build release APK
+        run: ./gradlew assembleRelease
+        working-directory: android
+        env:
+          NODE_ENV: production
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: obd-hararet-apk
+          path: android/app/build/outputs/apk/release/*.apk
+          retention-days: 30
