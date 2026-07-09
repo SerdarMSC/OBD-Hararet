@@ -193,9 +193,7 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const unsubscribe = obdEngine.onStatus((status) => {
       setConnectionStatus(status);
-      if (status === "error") {
-        setConnectionError("Cihaza bağlanılamadı. Adaptörün açık ve eşleşmiş olduğundan emin olun.");
-      } else {
+      if (status !== "error") {
         setConnectionError(null);
       }
     });
