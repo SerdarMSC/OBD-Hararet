@@ -276,12 +276,47 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
     [persistAlerts],
   );
 
-  const handleReading = useCallback((temp: number | null) => {
+  const handleReading = useCallback((temp: number | null, _error?: string) => {
     if (temp !== null) {
       setTemperatureC(temp);
       setLastUpdated(Date.now());
     }
   }, []);
+
+  // Foreground live readings: as soon as the adapter is connected, read the
+  // current temperature immediately (so the gauge never just sits empty),
+  // then keep refreshing on the same cadence as background monitoring.
+  // This pauses automatically once background monitoring takes over (to
+  // avoid two overlapping queries on the same Bluetooth connection) and
+  // resumes if background monitoring is stopped while still connected.
+  useEffect(() => {
+    if (connectionStatus !== "connected" || isMonitoring) return;
+
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const poll = async () => {
+      if (cancelled || !obdEngine.isConnected()) return;
+      try {
+        const temp = await obdEngine.queryCoolantTemp();
+        if (!cancelled) handleReading(temp);
+      } catch (err) {
+        if (!cancelled) {
+          handleReading(null, err instanceof Error ? err.message : "Okuma hatası");
+        }
+      }
+      if (!cancelled) {
+        timeoutId = setTimeout(poll, pollIntervalRef.current);
+      }
+    };
+
+    poll();
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [connectionStatus, isMonitoring, handleReading]);
 
   const startMonitoring = useCallback(async () => {
     await startBackgroundMonitoring({
