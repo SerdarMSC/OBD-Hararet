@@ -171,6 +171,12 @@ class ObdEngineSingleton {
         nativeModule.connectToDevice(address, {
           DELIMITER: "\n",
           DEVICE_CHARSET: "ascii",
+          // Many cheap ELM327 clones (HC-05/HC-06 based) only support
+          // insecure RFCOMM sockets. With SECURE_SOCKET left at its default
+          // (true), the connection can appear to succeed while the adapter
+          // never actually exchanges data — matching "connects but never
+          // responds" symptoms.
+          SECURE_SOCKET: false,
         }),
         this.connectTimeoutMs,
         "Adaptöre bağlanılamadı (zaman aşımı).",
@@ -180,21 +186,10 @@ class ObdEngineSingleton {
       // Cheap ELM327 clones sometimes need a short settle delay after the
       // RFCOMM socket connects, before they're ready to receive the first
       // command. Sending immediately can cause the first byte(s) to be lost.
-      await sleep(1500);
+      await sleep(350);
 
       for (const command of ELM327_INIT_COMMANDS) {
-
-        console.log("INIT >", command);
-    
-        const response = await this.sendRaw(command);
-    
-        console.log("INIT <", response);
-    
-        if (command === "ATZ") {
-            await sleep(1500);
-        } else {
-            await sleep(150);
-        }
+        await this.sendRaw(command);
       }
 
       this.setStatus("connected");
@@ -247,37 +242,19 @@ class ObdEngineSingleton {
         // Transient read errors can happen between polls; keep trying
         // until the deadline instead of failing immediately.
       }
-      await sleep(30);
+      await sleep(120);
     }
 
     throw new Error("Adaptörden yanıt alınamadı (zaman aşımı).");
   }
 
-private async sendRaw(command: string): Promise<string> {
-  if (!this.device) {
-    throw new Error("Bağlı cihaz yok.");
-  }
-
-  // Önce eski buffer'ı temizle
-  try {
-    while ((await this.device.available()) > 0) {
-      await this.device.read();
+  private async sendRaw(command: string): Promise<string> {
+    if (!this.device) {
+      throw new Error("Bağlı cihaz yok.");
     }
-  } catch {}
-
-  // Bazı klonlar CRLF bekliyor
-  await this.device.write(`${command}\r\n`);
-
-  // Yazma sonrası kısa bekleme
-  await sleep(80);
-
-  const response = await this.pollForResponse(this.responseTimeoutMs);
-
-  console.log("OBD >", command);
-  console.log("ELM <", response);
-
-  return response;
-}
+    await this.device.write(`${command}\r`);
+    return this.pollForResponse(this.responseTimeoutMs);
+  }
 
   private withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
     return new Promise((resolve, reject) => {

@@ -1,7 +1,7 @@
 import { Platform } from "react-native";
-import * as Notifications from "expo-notifications";
 
 import { obdEngine } from "./obdEngine";
+import { DEFAULT_ALERT_SOUND_ID, sendTemperatureAlert } from "./alertSounds";
 
 interface BackgroundServiceApi {
   start: (task: () => Promise<void>, options: Record<string, unknown>) => Promise<void>;
@@ -28,6 +28,7 @@ export function isBackgroundServiceAvailable(): boolean {
 export interface MonitorRefs {
   thresholdC: { current: number };
   pollIntervalMs: { current: number };
+  alertSoundId: { current: string };
   onReading: (temp: number | null, error?: string) => void;
   onAlert: (temp: number) => void;
 }
@@ -49,7 +50,11 @@ const monitorTask = async () => {
           if (now - lastAlertAt > ALERT_COOLDOWN_MS) {
             lastAlertAt = now;
             refs.onAlert(temp);
-            await sendAlertNotification(temp);
+            try {
+              await sendTemperatureAlert(refs.alertSoundId.current ?? DEFAULT_ALERT_SOUND_ID, temp);
+            } catch {
+              // notification permissions may not be granted yet — reading is still logged in-app
+            }
           }
         }
       } catch (err) {
@@ -59,21 +64,6 @@ const monitorTask = async () => {
     await service.sleep(refs?.pollIntervalMs.current ?? 3000);
   }
 };
-
-async function sendAlertNotification(temp: number) {
-  try {
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: "Motor sıcaklığı yüksek!",
-        body: `Motor sıcaklığı ${temp}°C'ye ulaştı. Aracı kontrol edin.`,
-        sound: true,
-      },
-      trigger: null,
-    });
-  } catch {
-    // notification permissions may not be granted yet — reading is still logged in-app
-  }
-}
 
 export async function startBackgroundMonitoring(refs: MonitorRefs): Promise<void> {
   if (!BackgroundServiceModule) {
