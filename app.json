@@ -42,6 +42,7 @@
     },
     "plugins": [
       "./plugins/withAndroidBuildConfig",
+      "./plugins/withBackgroundServiceType",
       [
         "expo-router",
         {
