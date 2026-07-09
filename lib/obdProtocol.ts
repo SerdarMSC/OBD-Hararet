@@ -5,7 +5,6 @@
  * Reference: OBD-II PID 0x05 (Engine coolant temperature).
  * Response format: "41 05 XX" where temperature(°C) = XX(hex) - 40.
  */
-
 export const ELM327_INIT_COMMANDS = [
     "ATI",
     "ATZ",
