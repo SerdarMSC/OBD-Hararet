@@ -183,13 +183,25 @@ class ObdEngineSingleton {
       );
       this.device = device;
 
+      let postConnectState = "bilinmiyor";
+      try {
+        postConnectState = String(await device.isConnected());
+      } catch (e) {
+        postConnectState = `hata: ${e instanceof Error ? e.message : String(e)}`;
+      }
+
       // Cheap ELM327 clones sometimes need a short settle delay after the
       // RFCOMM socket connects, before they're ready to receive the first
       // command. Sending immediately can cause the first byte(s) to be lost.
       await sleep(350);
 
       for (const command of ELM327_INIT_COMMANDS) {
-        await this.sendRaw(command);
+        try {
+          await this.sendRaw(command);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          throw new Error(`"${command}" komutunda başarısız [isConnected sonrası=${postConnectState}] ${msg}`);
+        }
       }
 
       this.setStatus("connected");
@@ -217,6 +229,11 @@ class ObdEngineSingleton {
    * Polls the device for incoming data instead of relying solely on the
    * onDataReceived event, which is known to be unreliable on some Android
    * versions / OEM Bluetooth stacks with react-native-bluetooth-classic.
+   *
+   * On timeout, the thrown error includes a compact trace of what
+   * available()/read() actually returned on each poll, so the real
+   * root cause is visible directly in the app's error UI instead of
+   * guessing blind.
    */
   private async pollForResponse(timeoutMs: number): Promise<string> {
     const device = this.device;
@@ -225,12 +242,18 @@ class ObdEngineSingleton {
     }
     const deadline = Date.now() + timeoutMs;
     let buffer = "";
+    const trace: string[] = [];
+    let pollCount = 0;
+    let anyNonZeroAvailable = false;
 
     while (Date.now() < deadline) {
+      pollCount++;
       try {
         const available = await device.available();
         if (available && available > 0) {
+          anyNonZeroAvailable = true;
           const chunk = await device.read();
+          trace.push(`#${pollCount} avail=${available} read=${JSON.stringify(chunk)?.slice(0, 40)}`);
           if (chunk) {
             buffer += chunk;
             if (isResponseComplete(buffer)) {
@@ -238,21 +261,33 @@ class ObdEngineSingleton {
             }
           }
         }
-      } catch {
-        // Transient read errors can happen between polls; keep trying
-        // until the deadline instead of failing immediately.
+      } catch (e) {
+        trace.push(`#${pollCount} HATA:${e instanceof Error ? e.message : String(e)}`);
       }
       await sleep(120);
     }
 
-    throw new Error("Adaptörden yanıt alınamadı (zaman aşımı).");
+    const traceSummary =
+      trace.length > 0
+        ? trace.slice(0, 6).join(" | ")
+        : `hiç veri gelmedi (${pollCount} yoklama, hepsi avail=0)`;
+    throw new Error(
+      `Adaptörden yanıt alınamadı (zaman aşımı). buffer="${buffer.slice(0, 60)}" nonZeroAvail=${anyNonZeroAvailable} :: ${traceSummary}`,
+    );
   }
 
   private async sendRaw(command: string): Promise<string> {
     if (!this.device) {
       throw new Error("Bağlı cihaz yok.");
     }
-    await this.device.write(`${command}\r`);
+    try {
+      const writeResult = await this.device.write(`${command}\r`);
+      if (writeResult === false) {
+        throw new Error("write() false döndürdü.");
+      }
+    } catch (e) {
+      throw new Error(`write() hata verdi: ${e instanceof Error ? e.message : String(e)}`);
+    }
     return this.pollForResponse(this.responseTimeoutMs);
   }
 
