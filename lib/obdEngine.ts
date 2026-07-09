@@ -165,7 +165,7 @@ class ObdEngineSingleton {
     this.setStatus("connecting");
     try {
       const device = await this.withTimeout(
-        nativeModule.connectToDevice(address, { DELIMITER: ">" }),
+        nativeModule.connectToDevice(address, { DELIMITER: "\n" }),
         this.connectTimeoutMs,
         "Adaptöre bağlanılamadı (zaman aşımı).",
       );
