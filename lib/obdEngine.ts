@@ -25,9 +25,15 @@ type NativeDevice = {
   name?: string;
   write: (data: string) => Promise<boolean>;
   onDataReceived: (listener: (event: { data: string }) => void) => { remove: () => void };
+  read: () => Promise<string | null>;
+  available: () => Promise<number>;
   disconnect: () => Promise<boolean>;
   isConnected: () => Promise<boolean>;
 };
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 let nativeModule: NativeBluetoothClassic | null = null;
 let unavailableReason: string | null = null;
@@ -74,9 +80,6 @@ export const MAX_CONNECT_TIMEOUT_MS = 30000;
 
 class ObdEngineSingleton {
   private device: NativeDevice | null = null;
-  private dataListener: { remove: () => void } | null = null;
-  private buffer = "";
-  private pendingResolve: ((value: string) => void) | null = null;
   private readingListeners = new Set<ReadingListener>();
   private statusListeners = new Set<StatusListener>();
   private status: EngineStatus = "disconnected";
@@ -165,13 +168,19 @@ class ObdEngineSingleton {
     this.setStatus("connecting");
     try {
       const device = await this.withTimeout(
-        nativeModule.connectToDevice(address, { DELIMITER: "\n" }),
+        nativeModule.connectToDevice(address, {
+          DELIMITER: "\n",
+          DEVICE_CHARSET: "ascii",
+        }),
         this.connectTimeoutMs,
         "Adaptöre bağlanılamadı (zaman aşımı).",
       );
       this.device = device;
-      this.buffer = "";
-      this.dataListener = device.onDataReceived((event) => this.handleData(event.data));
+
+      // Cheap ELM327 clones sometimes need a short settle delay after the
+      // RFCOMM socket connects, before they're ready to receive the first
+      // command. Sending immediately can cause the first byte(s) to be lost.
+      await sleep(350);
 
       for (const command of ELM327_INIT_COMMANDS) {
         await this.sendRaw(command);
@@ -185,8 +194,6 @@ class ObdEngineSingleton {
   }
 
   async disconnect(): Promise<void> {
-    this.dataListener?.remove();
-    this.dataListener = null;
     try {
       await this.device?.disconnect();
     } catch {
@@ -200,33 +207,47 @@ class ObdEngineSingleton {
     return this.device !== null && this.status === "connected";
   }
 
-  private handleData(chunk: string) {
-    this.buffer += chunk;
-    if (isResponseComplete(this.buffer) && this.pendingResolve) {
-      const response = this.buffer;
-      this.buffer = "";
-      const resolve = this.pendingResolve;
-      this.pendingResolve = null;
-      resolve(response);
+  /**
+   * Polls the device for incoming data instead of relying solely on the
+   * onDataReceived event, which is known to be unreliable on some Android
+   * versions / OEM Bluetooth stacks with react-native-bluetooth-classic.
+   */
+  private async pollForResponse(timeoutMs: number): Promise<string> {
+    const device = this.device;
+    if (!device) {
+      throw new Error("Bağlı cihaz yok.");
     }
+    const deadline = Date.now() + timeoutMs;
+    let buffer = "";
+
+    while (Date.now() < deadline) {
+      try {
+        const available = await device.available();
+        if (available && available > 0) {
+          const chunk = await device.read();
+          if (chunk) {
+            buffer += chunk;
+            if (isResponseComplete(buffer)) {
+              return buffer;
+            }
+          }
+        }
+      } catch {
+        // Transient read errors can happen between polls; keep trying
+        // until the deadline instead of failing immediately.
+      }
+      await sleep(120);
+    }
+
+    throw new Error("Adaptörden yanıt alınamadı (zaman aşımı).");
   }
 
-  private sendRaw(command: string): Promise<string> {
+  private async sendRaw(command: string): Promise<string> {
     if (!this.device) {
-      return Promise.reject(new Error("Bağlı cihaz yok."));
+      throw new Error("Bağlı cihaz yok.");
     }
-    return new Promise((resolve, reject) => {
-      this.pendingResolve = resolve;
-      this.buffer = "";
-      this.device!.write(`${command}\r`).catch(reject);
-
-      setTimeout(() => {
-        if (this.pendingResolve === resolve) {
-          this.pendingResolve = null;
-          reject(new Error("Adaptörden yanıt alınamadı (zaman aşımı)."));
-        }
-      }, this.responseTimeoutMs);
-    });
+    await this.device.write(`${command}\r`);
+    return this.pollForResponse(this.responseTimeoutMs);
   }
 
   private withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
