@@ -169,7 +169,14 @@ class ObdEngineSingleton {
     try {
       const device = await this.withTimeout(
         nativeModule.connectToDevice(address, {
-          DELIMITER: "\n",
+          // No DELIMITER: ELM327 terminates lines with \r and marks the end
+          // of a full response with a lone ">" prompt character — it never
+          // sends \n. Setting DELIMITER to "\n" (or any fixed delimiter)
+          // makes the native layer wait for a character that never arrives,
+          // so fragments like the trailing ">" prompt can get stuck and
+          // never reach us. We stream raw, unsegmented data instead and
+          // detect message completion ourselves via isResponseComplete().
+          DELIMITER: "",
           DEVICE_CHARSET: "ascii",
           // Many cheap ELM327 clones (HC-05/HC-06 based) only support
           // insecure RFCOMM sockets. With SECURE_SOCKET left at its default
