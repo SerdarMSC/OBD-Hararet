@@ -16,7 +16,7 @@ const INTERVAL_OPTIONS = [
   { label: "2 sn", value: 2000 },
   { label: "5 sn", value: 5000 },
   { label: "15 sn", value: 15000 },
-  { label: "20 sn", value: 20000 },
+  { label: "30 sn", value: 30000 },
 ];
 
 const RESPONSE_TIMEOUT_OPTIONS = [
