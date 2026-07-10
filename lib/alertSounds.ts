@@ -11,8 +11,8 @@ export interface AlertSoundOption {
 
 export const ALERT_SOUND_OPTIONS: AlertSoundOption[] = [
   { id: "default", label: "Varsayılan", filename: null },
-  { id: "siren", label: "Siren", filename: "alert_siren.wav" },
-  { id: "chime", label: "Çan", filename: "alert_chime.wav" },
+  { id: "siren", label: "BMW", filename: "alert_siren.wav" },
+  { id: "chime", label: "Being", filename: "alert_chime.wav" },
   { id: "alarm", label: "Alarm", filename: "alert_alarm.wav" },
 ];
 
