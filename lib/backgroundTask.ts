@@ -80,6 +80,11 @@ export async function startBackgroundMonitoring(refs: MonitorRefs): Promise<void
     color: "#e8542c",
     linkingURI: "mobile://",
     parameters: {},
+    // Android 14+ (API 34+) requires the foreground service type to be
+    // declared BOTH in the manifest (see plugins/withBackgroundServiceType.js)
+    // AND passed here at runtime — otherwise startForeground() throws
+    // InvalidForegroundServiceTypeException ("type none") and the app crashes.
+    foregroundServiceType: ["connectedDevice"],
   };
   await BackgroundServiceModule.start(monitorTask, options);
 }
