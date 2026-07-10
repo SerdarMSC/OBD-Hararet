@@ -72,7 +72,7 @@ type StatusListener = (status: EngineStatus) => void;
 export type EngineStatus = "disconnected" | "connecting" | "connected" | "error";
 
 export const DEFAULT_RESPONSE_TIMEOUT_MS = 4000;
-export const DEFAULT_CONNECT_TIMEOUT_MS = 10000;
+export const DEFAULT_CONNECT_TIMEOUT_MS = 16000;
 export const MIN_RESPONSE_TIMEOUT_MS = 1000;
 export const MAX_RESPONSE_TIMEOUT_MS = 15000;
 export const MIN_CONNECT_TIMEOUT_MS = 5000;
@@ -171,6 +171,7 @@ class ObdEngineSingleton {
       };
 
       let device: NativeDevice;
+      const attemptStartedAt = Date.now();
       try {
         device = await this.withTimeout(
           nativeModule.connectToDevice(address, connectOptions),
@@ -178,7 +179,23 @@ class ObdEngineSingleton {
           "Adaptöre bağlanılamadı (zaman aşımı).",
         );
       } catch (firstErr) {
-        await sleep(400);
+        // withTimeout() only races a JS-level timer — it does NOT cancel
+        // the underlying native connectToDevice() call. If the user has a
+        // short connectTimeoutMs configured (Settings allows as low as 5s),
+        // our JS timeout can fire well before Android's own internal RFCOMM
+        // connect ceiling (commonly ~12-14s) gives up on its own. Firing a
+        // second connectToDevice() while the first is still technically in
+        // flight makes the native library reject it immediately with
+        // "already attempting connection to device X". So before retrying,
+        // always wait until at least ~16s have elapsed since the first
+        // attempt started — independent of connectTimeoutMs — to guarantee
+        // the first native call has genuinely settled by then.
+        const NATIVE_SETTLE_FLOOR_MS = 16000;
+        const elapsed = Date.now() - attemptStartedAt;
+        const remaining = NATIVE_SETTLE_FLOOR_MS - elapsed;
+        if (remaining > 0) {
+          await sleep(remaining);
+        }
         try {
           device = await this.withTimeout(
             nativeModule.connectToDevice(address, connectOptions),
