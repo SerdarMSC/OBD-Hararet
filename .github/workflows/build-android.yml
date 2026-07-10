@@ -6,7 +6,7 @@ name: Build Android APK
 # affected by Expo's EAS Build quota.
 on:
   push:
-    branches: [main]
+    branches: [Native]
   workflow_dispatch: {}
 
 jobs:
