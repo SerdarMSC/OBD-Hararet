@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "OBD Sicaklik Izleyici",
+    "name": "OBD Temp Alarm",
     "slug": "obd-hararet",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -43,6 +43,7 @@
     "plugins": [
       "./plugins/withAndroidBuildConfig",
       "./plugins/withBackgroundServiceType",
+      "./plugins/withAbiFilters",
       [
         "expo-router",
         {
