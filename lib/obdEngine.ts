@@ -213,6 +213,19 @@ class ObdEngineSingleton {
 
       this.setStatus("connected");
     } catch (err) {
+      // If the socket was opened but init failed (timeout, bad response,
+      // etc.), it's left dangling here otherwise — the native layer still
+      // considers this address "connected", so the next connect() attempt
+      // fails immediately with an "already connected" error instead of
+      // actually retrying. Always tear down the socket on any failure.
+      if (this.device) {
+        try {
+          await this.device.disconnect();
+        } catch {
+          // best-effort cleanup — ignore
+        }
+        this.device = null;
+      }
       this.setStatus("error");
       throw err;
     }
