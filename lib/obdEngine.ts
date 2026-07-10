@@ -167,27 +167,49 @@ class ObdEngineSingleton {
     }
     this.setStatus("connecting");
     try {
-      const device = await this.withTimeout(
-        nativeModule.connectToDevice(address, {
-          // No DELIMITER: ELM327 terminates lines with \r and marks the end
-          // of a full response with a lone ">" prompt character — it never
-          // sends \n. Setting DELIMITER to "\n" (or any fixed delimiter)
-          // makes the native layer wait for a character that never arrives,
-          // so fragments like the trailing ">" prompt can get stuck and
-          // never reach us. We stream raw, unsegmented data instead and
-          // detect message completion ourselves via isResponseComplete().
-          DELIMITER: "",
-          DEVICE_CHARSET: "ascii",
-          // Many cheap ELM327 clones (HC-05/HC-06 based) only support
-          // insecure RFCOMM sockets. With SECURE_SOCKET left at its default
-          // (true), the connection can appear to succeed while the adapter
-          // never actually exchanges data — matching "connects but never
-          // responds" symptoms.
-          SECURE_SOCKET: false,
-        }),
-        this.connectTimeoutMs,
-        "Adaptöre bağlanılamadı (zaman aşımı).",
-      );
+      const connectOptions = {
+        // No DELIMITER: ELM327 terminates lines with \r and marks the end
+        // of a full response with a lone ">" prompt character — it never
+        // sends \n. Setting DELIMITER to "\n" (or any fixed delimiter)
+        // makes the native layer wait for a character that never arrives,
+        // so fragments like the trailing ">" prompt can get stuck and
+        // never reach us. We stream raw, unsegmented data instead and
+        // detect message completion ourselves via isResponseComplete().
+        DELIMITER: "",
+        DEVICE_CHARSET: "ascii",
+        // Many cheap ELM327 clones (HC-05/HC-06 based) only support
+        // insecure RFCOMM sockets. With SECURE_SOCKET left at its default
+        // (true), the connection can appear to succeed while the adapter
+        // never actually exchanges data — matching "connects but never
+        // responds" symptoms.
+        SECURE_SOCKET: false,
+      };
+
+      // Classic Bluetooth (RFCOMM/SPP) connections are known to sometimes
+      // time out on the very first attempt and succeed immediately on a
+      // second try — an Android Bluetooth-stack quirk, not specific to
+      // this adapter or our commands. Retry once automatically before
+      // surfacing a timeout to the user.
+      let device: NativeDevice;
+      try {
+        device = await this.withTimeout(
+          nativeModule.connectToDevice(address, connectOptions),
+          this.connectTimeoutMs,
+          "Adaptöre bağlanılamadı (zaman aşımı).",
+        );
+      } catch (firstErr) {
+        await sleep(400);
+        try {
+          device = await this.withTimeout(
+            nativeModule.connectToDevice(address, connectOptions),
+            this.connectTimeoutMs,
+            "Adaptöre bağlanılamadı (zaman aşımı, 2 denemede de).",
+          );
+        } catch (secondErr) {
+          const msg2 = secondErr instanceof Error ? secondErr.message : String(secondErr);
+          throw new Error(msg2);
+        }
+      }
       this.device = device;
 
       let postConnectState = "bilinmiyor";
