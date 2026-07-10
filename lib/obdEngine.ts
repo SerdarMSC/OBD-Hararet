@@ -120,8 +120,6 @@ class ObdEngineSingleton {
   async requestBluetoothPermissions(): Promise<boolean> {
     if (Platform.OS !== "android") return false;
     try {
-      // Android < 12 (API < 31) uses legacy permissions declared in manifest only.
-      // Android 12+ (API 31+) requires runtime grants for BLUETOOTH_CONNECT / SCAN.
       const apiLevel = Platform.Version as number;
       if (apiLevel < 31) return true;
 
@@ -141,8 +139,6 @@ class ObdEngineSingleton {
 
   async getBondedDevices(): Promise<PairedDevice[]> {
     if (!nativeModule) return [];
-    // Ensure permissions are granted before querying — on Android 12+ getBondedDevices
-    // returns an empty list without BLUETOOTH_CONNECT runtime permission.
     await this.requestBluetoothPermissions();
     const devices = await nativeModule.getBondedDevices();
     return devices.map((d) => ({
@@ -161,6 +157,7 @@ class ObdEngineSingleton {
     }
   }
 
+  // ========== GÜNCELLENMİŞ connect METODU ==========
   async connect(address: string): Promise<void> {
     if (!nativeModule) {
       throw new Error(unavailableReason ?? "Bluetooth kullanılamıyor.");
@@ -168,28 +165,11 @@ class ObdEngineSingleton {
     this.setStatus("connecting");
     try {
       const connectOptions = {
-        // No DELIMITER: ELM327 terminates lines with \r and marks the end
-        // of a full response with a lone ">" prompt character — it never
-        // sends \n. Setting DELIMITER to "\n" (or any fixed delimiter)
-        // makes the native layer wait for a character that never arrives,
-        // so fragments like the trailing ">" prompt can get stuck and
-        // never reach us. We stream raw, unsegmented data instead and
-        // detect message completion ourselves via isResponseComplete().
         DELIMITER: "",
         DEVICE_CHARSET: "ascii",
-        // Many cheap ELM327 clones (HC-05/HC-06 based) only support
-        // insecure RFCOMM sockets. With SECURE_SOCKET left at its default
-        // (true), the connection can appear to succeed while the adapter
-        // never actually exchanges data — matching "connects but never
-        // responds" symptoms.
         SECURE_SOCKET: false,
       };
 
-      // Classic Bluetooth (RFCOMM/SPP) connections are known to sometimes
-      // time out on the very first attempt and succeed immediately on a
-      // second try — an Android Bluetooth-stack quirk, not specific to
-      // this adapter or our commands. Retry once automatically before
-      // surfacing a timeout to the user.
       let device: NativeDevice;
       try {
         device = await this.withTimeout(
@@ -219,32 +199,44 @@ class ObdEngineSingleton {
         postConnectState = `hata: ${e instanceof Error ? e.message : String(e)}`;
       }
 
-      // Cheap ELM327 clones sometimes need a short settle delay after the
-      // RFCOMM socket connects, before they're ready to receive the first
-      // command. Sending immediately can cause the first byte(s) to be lost.
-      await sleep(350);
+      // Bağlantı sonrası cihazın hazır olması için 2 saniye bekle
+      console.log("[OBD] Cihaz hazırlanıyor, bekleniyor...");
+      await sleep(2000);
 
+      // Init komutlarını sırayla gönder
       for (const command of ELM327_INIT_COMMANDS) {
         try {
-          await this.sendRaw(command);
+          console.log(`[OBD] Komut gönderiliyor: ${command}`);
+          await this.sendRaw(`${command}\r`);
+          console.log(`[OBD] ${command} başarılı`);
+          await sleep(400);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          throw new Error(`"${command}" komutunda başarısız [isConnected sonrası=${postConnectState}] ${msg}`);
+          console.warn(`[OBD] ${command} başarısız: ${msg}`);
+          // ATSP0 kritik değilse diğer hataları görmezden gel, devam et
+          // Sadece gerçekten kritik hatalarda fırlat
+          if (command === "ATE0" || command === "ATSP0") {
+            throw new Error(`Kritik komut başarısız: "${command}" - ${msg}`);
+          }
         }
+      }
+
+      // Bağlantı testi yap
+      try {
+        console.log("[OBD] Bağlantı test ediliyor (0100)...");
+        await this.sendRaw("0100\r");
+        console.log("[OBD] Bağlantı testi başarılı");
+      } catch (err) {
+        console.warn("[OBD] Bağlantı testi başarısız ama devam ediliyor");
       }
 
       this.setStatus("connected");
     } catch (err) {
-      // If the socket was opened but init failed (timeout, bad response,
-      // etc.), it's left dangling here otherwise — the native layer still
-      // considers this address "connected", so the next connect() attempt
-      // fails immediately with an "already connected" error instead of
-      // actually retrying. Always tear down the socket on any failure.
       if (this.device) {
         try {
           await this.device.disconnect();
         } catch {
-          // best-effort cleanup — ignore
+          // best-effort cleanup
         }
         this.device = null;
       }
@@ -323,7 +315,7 @@ class ObdEngineSingleton {
       throw new Error("Bağlı cihaz yok.");
     }
     try {
-      const writeResult = await this.device.write(`${command}\r`);
+      const writeResult = await this.device.write(command);
       if (writeResult === false) {
         throw new Error("write() false döndürdü.");
       }
@@ -352,7 +344,7 @@ class ObdEngineSingleton {
     if (!this.device) {
       throw new Error("Bağlı cihaz yok.");
     }
-    const response = await this.sendRaw(COOLANT_TEMP_PID);
+    const response = await this.sendRaw(COOLANT_TEMP_PID + "\r");
     const temp = parseCoolantTempResponse(response);
     this.emitReading(temp);
     return temp;

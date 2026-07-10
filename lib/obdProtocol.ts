@@ -7,13 +7,11 @@
  */
 
 export const ELM327_INIT_COMMANDS = [
-    "ATI",
-    "ATZ",
     "ATE0",
     "ATL0",
     "ATS0",
     "ATH0",
-    "ATSP0"
+    "ATSP0",
 ];
 
 export const COOLANT_TEMP_PID = "0105";
