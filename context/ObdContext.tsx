@@ -56,6 +56,7 @@ interface ObdContextValue {
 
   temperatureC: number | null;
   lastUpdated: number | null;
+  lastReadingNote: string | null;
 
   thresholdC: number;
   setThresholdC: (value: number) => void;
@@ -113,6 +114,7 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
 
   const [temperatureC, setTemperatureC] = useState<number | null>(null);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+  const [lastReadingNote, setLastReadingNote] = useState<string | null>(null);
 
   const [thresholdC, setThresholdCState] = useState(DEFAULT_THRESHOLD_C);
   const [pollIntervalMs, setPollIntervalMsState] = useState(DEFAULT_POLL_INTERVAL_MS);
@@ -276,10 +278,13 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
     [persistAlerts],
   );
 
-  const handleReading = useCallback((temp: number | null, _error?: string) => {
+  const handleReading = useCallback((temp: number | null, note?: string) => {
     if (temp !== null) {
       setTemperatureC(temp);
       setLastUpdated(Date.now());
+      setLastReadingNote(null);
+    } else if (note) {
+      setLastReadingNote(note);
     }
   }, []);
 
@@ -299,7 +304,7 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
       if (cancelled || !obdEngine.isConnected()) return;
       try {
         const temp = await obdEngine.queryCoolantTemp();
-        if (!cancelled) handleReading(temp);
+        if (!cancelled) handleReading(temp, temp === null ? obdEngine.getLastRawResponse() : undefined);
       } catch (err) {
         if (!cancelled) {
           handleReading(null, err instanceof Error ? err.message : "Okuma hatası");
@@ -427,6 +432,7 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
       connectionError,
       temperatureC,
       lastUpdated,
+      lastReadingNote,
       thresholdC,
       setThresholdC,
       pollIntervalMs,
@@ -462,6 +468,7 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
       connectionError,
       temperatureC,
       lastUpdated,
+      lastReadingNote,
       thresholdC,
       responseTimeoutMs,
       setResponseTimeoutMs,
