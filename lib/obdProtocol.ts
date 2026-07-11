@@ -7,6 +7,7 @@
  */
 
 export const ELM327_INIT_COMMANDS = [
+    "ATZ",
     "ATE0",
     "ATL0",
     "ATS0",
