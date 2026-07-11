@@ -85,6 +85,11 @@ class ObdEngineSingleton {
   private status: EngineStatus = "disconnected";
   private responseTimeoutMs = DEFAULT_RESPONSE_TIMEOUT_MS;
   private connectTimeoutMs = DEFAULT_CONNECT_TIMEOUT_MS;
+  private lastRawResponse = "";
+
+  getLastRawResponse(): string {
+    return this.lastRawResponse;
+  }
 
   setResponseTimeoutMs(value: number) {
     this.responseTimeoutMs = value;
@@ -362,6 +367,7 @@ class ObdEngineSingleton {
       throw new Error("Bağlı cihaz yok.");
     }
     const response = await this.sendRaw(COOLANT_TEMP_PID + "\r");
+    this.lastRawResponse = response.replace(/[\r\n>]/g, " ").trim();
     const temp = parseCoolantTempResponse(response);
     this.emitReading(temp);
     return temp;
