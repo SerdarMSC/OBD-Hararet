@@ -24,15 +24,25 @@ export function parseCoolantTempResponse(raw: string): number | null {
     .trim()
     .toUpperCase();
 
-  if (!cleaned || cleaned.includes("NO DATA") || cleaned.includes("ERROR")) {
+  if (!cleaned || cleaned.includes("NO DATA") || cleaned.includes("ERROR") || cleaned.includes("UNABLE")) {
     return null;
   }
 
-  const tokens = cleaned.split(/\s+/).filter((token) => /^[0-9A-F]{2}$/.test(token));
+  // ATS0 (spaces off, part of our init sequence) makes the adapter send
+  // responses as one continuous hex string (e.g. "410584") instead of
+  // space-separated bytes ("41 05 84"). Rather than relying on whitespace
+  // to delimit bytes, strip everything down to hex characters only and
+  // regroup into 2-character byte pairs ourselves — this works correctly
+  // regardless of whether the adapter happens to include spaces or not.
+  const hexOnly = cleaned.replace(/[^0-9A-F]/g, "");
+  const bytes: string[] = [];
+  for (let i = 0; i + 1 < hexOnly.length; i += 2) {
+    bytes.push(hexOnly.slice(i, i + 2));
+  }
 
-  for (let i = 0; i < tokens.length - 2; i++) {
-    if (tokens[i] === "41" && tokens[i + 1] === "05") {
-      const byteA = parseInt(tokens[i + 2], 16);
+  for (let i = 0; i < bytes.length - 2; i++) {
+    if (bytes[i] === "41" && bytes[i + 1] === "05") {
+      const byteA = parseInt(bytes[i + 2], 16);
       if (!Number.isNaN(byteA)) {
         return byteA - 40;
       }
