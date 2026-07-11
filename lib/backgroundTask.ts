@@ -44,7 +44,7 @@ const monitorTask = async () => {
     if (refs && obdEngine.isConnected()) {
       try {
         const temp = await obdEngine.queryCoolantTemp();
-        refs.onReading(temp);
+        refs.onReading(temp, temp === null ? obdEngine.getLastRawResponse() : undefined);
         if (temp !== null && temp >= refs.thresholdC.current) {
           const now = Date.now();
           if (now - lastAlertAt > ALERT_COOLDOWN_MS) {
