@@ -34,6 +34,7 @@ export default function DashboardScreen() {
     connectionError,
     temperatureC,
     lastUpdated,
+    lastReadingNote,
     thresholdC,
     isMonitoring,
     startMonitoring,
@@ -155,6 +156,12 @@ export default function DashboardScreen() {
           <Text style={[styles.thresholdLabel, { color: colors.mutedForeground }]}>
             Uyarı eşiği: {thresholdC}°C
           </Text>
+          {temperatureC === null && lastReadingNote ? (
+            <Text style={[styles.readingNote, { color: colors.destructive }]}>
+              Araçtan yanıt: "{lastReadingNote}"{"\n"}
+              (Kontak açık ve motor bağlı OBD hattında mı kontrol edin.)
+            </Text>
+          ) : null}
         </View>
 
         <Pressable
@@ -252,6 +259,12 @@ const styles = StyleSheet.create({
   },
   thresholdLabel: {
     fontSize: 13,
+  },
+  readingNote: {
+    fontSize: 12,
+    textAlign: "center",
+    marginTop: 8,
+    lineHeight: 17,
   },
   monitorButton: {
     flexDirection: "row",
