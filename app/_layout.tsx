@@ -15,6 +15,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { AlertAcknowledgeOverlay } from "@/components/AlertAcknowledgeOverlay";
 import { ObdProvider } from "@/context/ObdContext";
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
@@ -64,6 +65,7 @@ export default function RootLayout() {
             <KeyboardProvider>
               <ObdProvider>
                 <RootLayoutNav />
+                <AlertAcknowledgeOverlay />
               </ObdProvider>
             </KeyboardProvider>
           </GestureHandlerRootView>
