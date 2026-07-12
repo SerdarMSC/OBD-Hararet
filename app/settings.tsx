@@ -1,7 +1,8 @@
 import { Feather } from "@expo/vector-icons";
+import Constants from "expo-constants";
 import * as Haptics from "expo-haptics";
 import React, { useCallback } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useObd } from "@/context/ObdContext";
@@ -11,6 +12,12 @@ import { ALERT_SOUND_OPTIONS } from "@/lib/alertSounds";
 const THRESHOLD_STEP = 1;
 const MIN_THRESHOLD = 70;
 const MAX_THRESHOLD = 130;
+
+const APP_NAME = Constants.expoConfig?.name ?? "OBD Sıcaklık İzleyici";
+const APP_VERSION = Constants.expoConfig?.version ?? "—";
+const APP_BUILD_NUMBER = Constants.expoConfig?.android?.versionCode ?? "—";
+const GITHUB_URL = "https://github.com/SerdarMSC/";
+const CONTACT_EMAIL = "serdarmsc@gmail.com";
 
 const INTERVAL_OPTIONS = [
   { label: "2 sn", value: 2000 },
@@ -88,6 +95,14 @@ export default function SettingsScreen() {
       Alert.alert("Önizleme başarısız", "Bildirim izni verilmemiş olabilir.");
     }
   }, [previewSelectedAlertSound]);
+
+  const handleOpenGithub = useCallback(() => {
+    Linking.openURL(GITHUB_URL).catch(() => {});
+  }, []);
+
+  const handleOpenEmail = useCallback(() => {
+    Linking.openURL(`mailto:${CONTACT_EMAIL}`).catch(() => {});
+  }, []);
 
   return (
     <ScrollView
@@ -346,6 +361,41 @@ export default function SettingsScreen() {
           <Text style={{ color: colors.destructive, fontWeight: "600" }}>Uyarı geçmişini temizle</Text>
         </Pressable>
       </View>
+
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>Hakkında</Text>
+        <View style={[styles.card, { backgroundColor: colors.card, borderRadius: colors.radius }]}>
+          <View style={styles.aboutHeader}>
+            <Text style={[styles.aboutAppName, { color: colors.cardForeground }]}>{APP_NAME}</Text>
+            <Text style={[styles.aboutMeta, { color: colors.mutedForeground }]}>
+              Sürüm {APP_VERSION} · Build {APP_BUILD_NUMBER}
+            </Text>
+          </View>
+
+          <View style={styles.divider} />
+
+          <View style={styles.aboutRow}>
+            <Text style={[styles.aboutLabel, { color: colors.mutedForeground }]}>Geliştirici</Text>
+            <Text style={[styles.aboutValue, { color: colors.cardForeground }]}>Coder SerdarMSC</Text>
+          </View>
+
+          <Pressable onPress={handleOpenGithub} style={({ pressed }) => [styles.aboutLinkRow, { opacity: pressed ? 0.6 : 1 }]}>
+            <Feather name="github" size={16} color={colors.mutedForeground} />
+            <Text style={[styles.aboutLinkText, { color: colors.primary }]}>github.com/SerdarMSC</Text>
+          </Pressable>
+
+          <Pressable onPress={handleOpenEmail} style={({ pressed }) => [styles.aboutLinkRow, { opacity: pressed ? 0.6 : 1 }]}>
+            <Feather name="mail" size={16} color={colors.mutedForeground} />
+            <Text style={[styles.aboutLinkText, { color: colors.primary }]}>{CONTACT_EMAIL}</Text>
+          </Pressable>
+
+          <View style={styles.divider} />
+
+          <Text style={[styles.aboutLicense, { color: colors.mutedForeground }]}>
+            MIT License altında yayımlanmıştır. Kaynak kodu ve katkılar için GitHub deposunu ziyaret edebilirsiniz.
+          </Text>
+        </View>
+      </View>
     </ScrollView>
   );
 }
@@ -444,5 +494,44 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 8,
     paddingVertical: 14,
+  },
+  aboutHeader: {
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 4,
+  },
+  aboutAppName: {
+    fontSize: 18,
+    fontWeight: "700",
+  },
+  aboutMeta: {
+    fontSize: 13,
+  },
+  aboutRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  aboutLabel: {
+    fontSize: 14,
+  },
+  aboutValue: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  aboutLinkRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 2,
+  },
+  aboutLinkText: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  aboutLicense: {
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: "center",
   },
 });
