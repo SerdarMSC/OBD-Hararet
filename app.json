@@ -63,7 +63,8 @@
             "./assets/sounds/alert_alarm.wav"
           ]
         }
-      ]
+      ],
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true,
