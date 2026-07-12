@@ -376,7 +376,7 @@ export default function SettingsScreen() {
 
           <View style={styles.aboutRow}>
             <Text style={[styles.aboutLabel, { color: colors.mutedForeground }]}>Geliştirici</Text>
-            <Text style={[styles.aboutValue, { color: colors.cardForeground }]}>Coder SerdarMSC</Text>
+            <Text style={[styles.aboutValue, { color: colors.cardForeground }]}>SerdarMSC aka mscsi[DTCG]</Text>
           </View>
 
           <Pressable onPress={handleOpenGithub} style={({ pressed }) => [styles.aboutLinkRow, { opacity: pressed ? 0.6 : 1 }]}>
