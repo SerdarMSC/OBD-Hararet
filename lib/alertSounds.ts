@@ -1,4 +1,5 @@
 import * as Notifications from "expo-notifications";
+import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
 
 export interface AlertSoundOption {
   id: string;
@@ -18,12 +19,92 @@ export const ALERT_SOUND_OPTIONS: AlertSoundOption[] = [
 
 export const DEFAULT_ALERT_SOUND_ID = "default";
 
+// require() targets for expo-audio playback — separate from the
+// expo-notifications "sounds" config (which only bundles these as Android
+// raw resources for one-shot notification tones). The "default" option has
+// no real bundled file, so looping playback falls back to "siren" for it.
+const LOOP_SOUND_ASSETS: Record<string, number> = {
+  siren: require("../assets/sounds/alert_siren.wav"),
+  chime: require("../assets/sounds/alert_chime.wav"),
+  alarm: require("../assets/sounds/alert_alarm.wav"),
+};
+
 function channelIdFor(soundId: string): string {
   return `obd-alert-${soundId}`;
 }
 
 function optionFor(soundId: string): AlertSoundOption {
   return ALERT_SOUND_OPTIONS.find((option) => option.id === soundId) ?? ALERT_SOUND_OPTIONS[0];
+}
+
+let audioModeConfigured = false;
+
+/**
+ * Configures the audio session once so looping alerts keep playing even if
+ * the phone's ringer is on silent/vibrate and while the app is backgrounded
+ * (the background monitoring service keeps the JS runtime alive). Safe to
+ * call multiple times.
+ *
+ * Note on volume: Android intentionally does not let apps override the
+ * user's own volume sliders — there is no supported way to make a sound
+ * play "louder than the system allows". Setting the player's own volume to
+ * maximum (done in startLoopingAlert below) is the most we can control;
+ * looping the sound repeatedly until acknowledged is what actually makes
+ * it hard to miss, rather than a raw volume boost.
+ */
+async function ensureAudioModeConfigured(): Promise<void> {
+  if (audioModeConfigured) return;
+  try {
+    await setAudioModeAsync({
+      playsInSilentMode: true,
+      shouldPlayInBackground: true,
+      interruptionMode: "doNotMix",
+    });
+    audioModeConfigured = true;
+  } catch {
+    // Non-fatal — looping playback will still be attempted.
+  }
+}
+
+let activeLoopPlayer: AudioPlayer | null = null;
+
+/**
+ * Starts looping the given alert sound at full player volume, repeating
+ * indefinitely until stopLoopingAlert() is called (e.g. the user taps
+ * "Onayla" on the in-app alert banner). Any previously looping sound is
+ * stopped first.
+ */
+export async function startLoopingAlert(soundId: string): Promise<void> {
+  await ensureAudioModeConfigured();
+  stopLoopingAlert();
+
+  const option = optionFor(soundId);
+  const assetKey = option.filename ? soundId : "siren";
+  const asset = LOOP_SOUND_ASSETS[assetKey] ?? LOOP_SOUND_ASSETS.siren;
+
+  try {
+    const player = createAudioPlayer(asset);
+    player.loop = true;
+    player.volume = 1.0;
+    player.play();
+    activeLoopPlayer = player;
+  } catch {
+    // If playback fails to start (e.g. audio focus denied), the one-shot
+    // notification sound + in-app banner are still shown.
+  }
+}
+
+/** Stops the currently looping alert sound, if any. */
+export function stopLoopingAlert(): void {
+  if (activeLoopPlayer) {
+    try {
+      activeLoopPlayer.pause();
+      activeLoopPlayer.remove();
+    } catch {
+      // ignore — player may already be released
+    }
+    activeLoopPlayer = null;
+  }
 }
 
 /**

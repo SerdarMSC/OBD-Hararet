@@ -1,7 +1,6 @@
 import { Platform } from "react-native";
 
 import { obdEngine } from "./obdEngine";
-import { DEFAULT_ALERT_SOUND_ID, sendTemperatureAlert } from "./alertSounds";
 
 interface BackgroundServiceApi {
   start: (task: () => Promise<void>, options: Record<string, unknown>) => Promise<void>;
@@ -26,16 +25,11 @@ export function isBackgroundServiceAvailable(): boolean {
 }
 
 export interface MonitorRefs {
-  thresholdC: { current: number };
   pollIntervalMs: { current: number };
-  alertSoundId: { current: string };
   onReading: (temp: number | null, error?: string) => void;
-  onAlert: (temp: number) => void;
 }
 
 let activeRefs: MonitorRefs | null = null;
-let lastAlertAt = 0;
-const ALERT_COOLDOWN_MS = 60_000;
 
 const monitorTask = async () => {
   const service = BackgroundServiceModule!;
@@ -44,19 +38,13 @@ const monitorTask = async () => {
     if (refs && obdEngine.isConnected()) {
       try {
         const temp = await obdEngine.queryCoolantTemp();
+        // Threshold checking, alert cooldown, history logging, and firing
+        // the notification are all handled centrally by ObdContext's
+        // handleReading (refs.onReading) — this keeps behavior identical
+        // whether a reading comes from this background loop or from the
+        // foreground live-polling loop, instead of duplicating (and
+        // potentially diverging) the alert logic in two places.
         refs.onReading(temp, temp === null ? obdEngine.getLastRawResponse() : undefined);
-        if (temp !== null && temp >= refs.thresholdC.current) {
-          const now = Date.now();
-          if (now - lastAlertAt > ALERT_COOLDOWN_MS) {
-            lastAlertAt = now;
-            refs.onAlert(temp);
-            try {
-              await sendTemperatureAlert(refs.alertSoundId.current ?? DEFAULT_ALERT_SOUND_ID, temp);
-            } catch {
-              // notification permissions may not be granted yet — reading is still logged in-app
-            }
-          }
-        }
       } catch (err) {
         refs?.onReading(null, err instanceof Error ? err.message : "Okuma hatası");
       }
