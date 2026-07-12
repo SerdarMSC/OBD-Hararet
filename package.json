@@ -58,7 +58,8 @@
     "typescript": "~5.9.2",
     "zod": "^3.24.1",
     "zod-validation-error": "^3.4.0",
-    "expo-audio": "~1.0.16"
+    "expo-audio": "~1.0.16",
+    "expo-asset": "12.0.11"
   },
   "dependencies": {
     "babel-preset-expo": "^57.0.2",
