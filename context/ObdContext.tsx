@@ -29,7 +29,12 @@ import {
   DEFAULT_ALERT_SOUND_ID,
   ensureAlertSoundChannels,
   previewAlertSound,
+  sendTemperatureAlert,
+  startLoopingAlert,
+  stopLoopingAlert,
 } from "@/lib/alertSounds";
+
+const ALERT_COOLDOWN_MS = 60_000;
 
 export interface AlertLogEntry {
   id: string;
@@ -86,6 +91,9 @@ interface ObdContextValue {
   alertSoundId: string;
   setAlertSoundId: (value: string) => void;
   previewSelectedAlertSound: () => Promise<void>;
+
+  activeAlertTemp: number | null;
+  acknowledgeAlert: () => void;
 }
 
 const STORAGE_KEYS = {
@@ -115,6 +123,7 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
   const [temperatureC, setTemperatureC] = useState<number | null>(null);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [lastReadingNote, setLastReadingNote] = useState<string | null>(null);
+  const [activeAlertTemp, setActiveAlertTemp] = useState<number | null>(null);
 
   const [thresholdC, setThresholdCState] = useState(DEFAULT_THRESHOLD_C);
   const [pollIntervalMs, setPollIntervalMsState] = useState(DEFAULT_POLL_INTERVAL_MS);
@@ -134,6 +143,7 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
   const thresholdRef = useRef(thresholdC);
   const pollIntervalRef = useRef(pollIntervalMs);
   const alertSoundIdRef = useRef(alertSoundId);
+  const lastAlertAtRef = useRef(0);
   thresholdRef.current = thresholdC;
   pollIntervalRef.current = pollIntervalMs;
   alertSoundIdRef.current = alertSoundId;
@@ -278,15 +288,31 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
     [persistAlerts],
   );
 
-  const handleReading = useCallback((temp: number | null, note?: string) => {
-    if (temp !== null) {
-      setTemperatureC(temp);
-      setLastUpdated(Date.now());
-      setLastReadingNote(null);
-    } else if (note) {
-      setLastReadingNote(note);
-    }
-  }, []);
+  const handleReading = useCallback(
+    (temp: number | null, note?: string) => {
+      if (temp !== null) {
+        setTemperatureC(temp);
+        setLastUpdated(Date.now());
+        setLastReadingNote(null);
+
+        if (temp >= thresholdRef.current) {
+          const now = Date.now();
+          if (now - lastAlertAtRef.current > ALERT_COOLDOWN_MS) {
+            lastAlertAtRef.current = now;
+            handleAlert(temp);
+            setActiveAlertTemp(temp);
+            startLoopingAlert(alertSoundIdRef.current ?? DEFAULT_ALERT_SOUND_ID).catch(() => {});
+            sendTemperatureAlert(alertSoundIdRef.current ?? DEFAULT_ALERT_SOUND_ID, temp).catch(() => {
+              // notification permissions may not be granted yet — reading is still logged in-app
+            });
+          }
+        }
+      } else if (note) {
+        setLastReadingNote(note);
+      }
+    },
+    [handleAlert],
+  );
 
   // Foreground live readings: as soon as the adapter is connected, read the
   // current temperature immediately (so the gauge never just sits empty),
@@ -325,14 +351,11 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
 
   const startMonitoring = useCallback(async () => {
     await startBackgroundMonitoring({
-      thresholdC: thresholdRef,
       pollIntervalMs: pollIntervalRef,
-      alertSoundId: alertSoundIdRef,
       onReading: handleReading,
-      onAlert: handleAlert,
     });
     setIsMonitoring(true);
-  }, [handleAlert, handleReading]);
+  }, [handleReading]);
 
   const stopMonitoring = useCallback(async () => {
     await stopBackgroundMonitoring();
@@ -398,6 +421,11 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
     await previewAlertSound(alertSoundIdRef.current);
   }, []);
 
+  const acknowledgeAlert = useCallback(() => {
+    stopLoopingAlert();
+    setActiveAlertTemp(null);
+  }, []);
+
   const clearAlertHistory = useCallback(() => {
     setAlertHistory([]);
     persistAlerts([]);
@@ -455,6 +483,8 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
       alertSoundId,
       setAlertSoundId,
       previewSelectedAlertSound,
+      activeAlertTemp,
+      acknowledgeAlert,
     }),
     [
       bluetoothPermissionGranted,
@@ -491,6 +521,8 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
       alertSoundId,
       setAlertSoundId,
       previewSelectedAlertSound,
+      activeAlertTemp,
+      acknowledgeAlert,
     ],
   );
 
