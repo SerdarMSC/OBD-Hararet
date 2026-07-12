@@ -37,6 +37,21 @@ jobs:
       - name: Install required Android NDK
         run: $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;27.1.12297006" "cmake;3.22.1"
 
+      - name: Set version code from build number
+        # Every workflow run gets a unique, always-increasing number from
+        # GitHub (${{ github.run_number }}). Writing it into app.json's
+        # android.versionCode means each auto-built APK gets a distinct,
+        # traceable build number automatically — no manual editing needed.
+        run: |
+          node -e "
+            const fs = require('fs');
+            const path = 'app.json';
+            const config = JSON.parse(fs.readFileSync(path, 'utf8'));
+            config.expo.android.versionCode = ${{ github.run_number }};
+            fs.writeFileSync(path, JSON.stringify(config, null, 2) + '\n');
+            console.log('versionCode set to ${{ github.run_number }}');
+          "
+
       - name: Run Expo prebuild (generate native android project)
         run: npx expo prebuild --platform android --no-install
         env:
@@ -61,6 +76,6 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: obd-hararet-apk
+          name: obd-hararet-apk-build${{ github.run_number }}
           path: android/app/build/outputs/apk/release/*.apk
           retention-days: 30
