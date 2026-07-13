@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useObd } from "@/context/ObdContext";
 import { useColors } from "@/hooks/useColors";
 import { ALERT_SOUND_OPTIONS } from "@/lib/alertSounds";
-import { getLastBackgroundTaskError } from "@/lib/backgroundTask";
+import { getLastBackgroundTaskError, getLastBackgroundTaskStartedAt } from "@/lib/backgroundTask";
 
 const THRESHOLD_STEP = 1;
 const MIN_THRESHOLD = 70;
@@ -45,9 +45,11 @@ export default function SettingsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const [lastBgError, setLastBgError] = useState<string | null>(null);
+  const [lastBgStartedAt, setLastBgStartedAt] = useState<string | null>(null);
 
   useEffect(() => {
     getLastBackgroundTaskError().then(setLastBgError);
+    getLastBackgroundTaskStartedAt().then(setLastBgStartedAt);
   }, []);
 
   const {
@@ -401,6 +403,25 @@ export default function SettingsScreen() {
           <Text style={[styles.aboutLicense, { color: colors.mutedForeground }]}>
             MIT License altında yayımlanmıştır. Kaynak kodu ve katkılar için GitHub deposunu ziyaret edebilirsiniz.
           </Text>
+
+          {lastBgStartedAt ? (
+            <>
+              <View style={styles.divider} />
+              <Text style={[styles.aboutLabel, { color: colors.mutedForeground, fontSize: 11 }]}>
+                Arka plan görevi son başlama zamanı:
+              </Text>
+              <Text style={[styles.aboutLicense, { color: colors.mutedForeground, textAlign: "left" }]}>
+                {lastBgStartedAt}
+              </Text>
+            </>
+          ) : (
+            <>
+              <View style={styles.divider} />
+              <Text style={[styles.aboutLicense, { color: colors.mutedForeground, textAlign: "left" }]}>
+                Arka plan görevi henüz hiç başlamadı.
+              </Text>
+            </>
+          )}
 
           {lastBgError ? (
             <>
