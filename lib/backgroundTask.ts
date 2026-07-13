@@ -33,6 +33,7 @@ export interface MonitorRefs {
 
 const LAST_ERROR_STORAGE_KEY = "obd:lastBackgroundTaskError";
 const TASK_STARTED_STORAGE_KEY = "obd:backgroundTaskStartedAt";
+const TRACE_STORAGE_KEY = "obd:backgroundTaskTrace";
 
 let activeRefs: MonitorRefs | null = null;
 
@@ -46,15 +47,23 @@ let activeRefs: MonitorRefs | null = null;
 // library's internal timing.
 let shouldKeepRunning = false;
 
+function writeTrace(text: string) {
+  AsyncStorage.setItem(TRACE_STORAGE_KEY, `${new Date().toISOString()} :: ${text}`).catch(() => {});
+}
+
 const monitorTask = async () => {
   // Written the instant this function is actually invoked by the native
   // module, before any loop condition is checked — if monitoring "does
   // nothing" again, checking this timestamp (surfaced in Settings) tells
   // us whether the task ever ran at all vs. ran but exited immediately.
   AsyncStorage.setItem(TASK_STARTED_STORAGE_KEY, new Date().toISOString()).catch(() => {});
+  writeTrace(`monitorTask invoked. shouldKeepRunning(module-level)=${shouldKeepRunning}`);
 
   const service = BackgroundServiceModule!;
+  let iteration = 0;
+
   while (shouldKeepRunning) {
+    iteration++;
     const refs = activeRefs;
     // Everything in this iteration — including refs.onReading(), which now
     // also triggers alert notifications / the looping alarm sound / the
@@ -65,20 +74,30 @@ const monitorTask = async () => {
     // while loop for good, freezing all future readings until the user
     // manually stopped and restarted monitoring.
     try {
-      if (refs) {
-        if (!obdEngine.isConnected() && refs.deviceAddress.current) {
-          // Likely running in a separate HeadlessJS instance (see
-          // reclaimOrConnect's doc comment) — reclaim the existing native
-          // connection instead of assuming there isn't one.
-          await obdEngine.reclaimOrConnect(refs.deviceAddress.current);
+      if (!refs) {
+        writeTrace(`#${iteration} activeRefs is NULL — skipping this iteration entirely.`);
+      } else {
+        const addr = refs.deviceAddress.current;
+        const connectedBefore = obdEngine.isConnected();
+        writeTrace(`#${iteration} refs OK. deviceAddress=${addr ?? "null"} isConnected(before)=${connectedBefore}`);
+
+        if (!connectedBefore && addr) {
+          writeTrace(`#${iteration} attempting reclaimOrConnect(${addr})...`);
+          await obdEngine.reclaimOrConnect(addr);
+          writeTrace(`#${iteration} reclaimOrConnect finished. isConnected(after)=${obdEngine.isConnected()}`);
         }
+
         if (obdEngine.isConnected()) {
           const temp = await obdEngine.queryCoolantTemp();
+          writeTrace(`#${iteration} query OK. temp=${temp}`);
           refs.onReading(temp, temp === null ? obdEngine.getLastRawResponse() : undefined);
+        } else {
+          writeTrace(`#${iteration} still not connected — no query sent this iteration.`);
         }
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      writeTrace(`#${iteration} EXCEPTION: ${message}`);
       try {
         refs?.onReading(null, message);
       } catch {
@@ -92,6 +111,7 @@ const monitorTask = async () => {
     }
     await service.sleep(refs?.pollIntervalMs.current ?? 3000);
   }
+  writeTrace(`while loop exited after ${iteration} iterations (shouldKeepRunning became false).`);
 };
 
 /** Returns the last uncaught error from the background monitoring loop, if any — for diagnostics. */
@@ -107,6 +127,15 @@ export async function getLastBackgroundTaskError(): Promise<string | null> {
 export async function getLastBackgroundTaskStartedAt(): Promise<string | null> {
   try {
     return await AsyncStorage.getItem(TASK_STARTED_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** Returns the most recent step-by-step trace line from the background loop — for diagnostics. */
+export async function getLastBackgroundTaskTrace(): Promise<string | null> {
+  try {
+    return await AsyncStorage.getItem(TRACE_STORAGE_KEY);
   } catch {
     return null;
   }
