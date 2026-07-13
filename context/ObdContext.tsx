@@ -144,9 +144,11 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
   const pollIntervalRef = useRef(pollIntervalMs);
   const alertSoundIdRef = useRef(alertSoundId);
   const lastAlertAtRef = useRef(0);
+  const deviceAddressRef = useRef<string | null>(null);
   thresholdRef.current = thresholdC;
   pollIntervalRef.current = pollIntervalMs;
   alertSoundIdRef.current = alertSoundId;
+  deviceAddressRef.current = selectedDevice?.address ?? null;
 
   // Hydrate persisted settings.
   useEffect(() => {
@@ -352,6 +354,7 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
   const startMonitoring = useCallback(async () => {
     await startBackgroundMonitoring({
       pollIntervalMs: pollIntervalRef,
+      deviceAddress: deviceAddressRef,
       onReading: handleReading,
     });
     setIsMonitoring(true);
