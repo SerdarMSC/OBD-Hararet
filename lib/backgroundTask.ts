@@ -31,6 +31,10 @@ export interface MonitorRefs {
   onReading: (temp: number | null, error?: string) => void;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 const LAST_ERROR_STORAGE_KEY = "obd:lastBackgroundTaskError";
 const TASK_STARTED_STORAGE_KEY = "obd:backgroundTaskStartedAt";
 const TRACE_STORAGE_KEY = "obd:backgroundTaskTrace";
@@ -59,7 +63,6 @@ const monitorTask = async () => {
   AsyncStorage.setItem(TASK_STARTED_STORAGE_KEY, new Date().toISOString()).catch(() => {});
   writeTrace(`monitorTask invoked. shouldKeepRunning(module-level)=${shouldKeepRunning}`);
 
-  const service = BackgroundServiceModule!;
   let iteration = 0;
 
   while (shouldKeepRunning) {
@@ -73,6 +76,16 @@ const monitorTask = async () => {
     // propagate out of this async function entirely and silently kill the
     // while loop for good, freezing all future readings until the user
     // manually stopped and restarted monitoring.
+    //
+    // The real bug that caused exactly this symptom: this loop used to
+    // call `service.sleep(...)` OUTSIDE this try/catch — but
+    // react-native-background-actions does not actually expose a sleep()
+    // method at all (confirmed against its own type declarations). That
+    // call threw "service.sleep is not a function" immediately after the
+    // very first successful reading, and since it was unprotected, it
+    // silently killed monitorTask's promise for good — matching the
+    // observed pattern of "one successful reading, then nothing, ever
+    // again, with no error logged."
     try {
       if (!refs) {
         writeTrace(`#${iteration} activeRefs is NULL — skipping this iteration entirely.`);
@@ -109,7 +122,12 @@ const monitorTask = async () => {
         `${new Date().toISOString()}: ${message}`,
       ).catch(() => {});
     }
-    await service.sleep(refs?.pollIntervalMs.current ?? 3000);
+
+    try {
+      await sleep(refs?.pollIntervalMs.current ?? 3000);
+    } catch (err) {
+      writeTrace(`#${iteration} sleep() itself threw: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
   writeTrace(`while loop exited after ${iteration} iterations (shouldKeepRunning became false).`);
 };
