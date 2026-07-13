@@ -1,13 +1,14 @@
 import { Feather } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import * as Haptics from "expo-haptics";
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useObd } from "@/context/ObdContext";
 import { useColors } from "@/hooks/useColors";
 import { ALERT_SOUND_OPTIONS } from "@/lib/alertSounds";
+import { getLastBackgroundTaskError } from "@/lib/backgroundTask";
 
 const THRESHOLD_STEP = 1;
 const MIN_THRESHOLD = 70;
@@ -43,6 +44,12 @@ const CONNECT_TIMEOUT_OPTIONS = [
 export default function SettingsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const [lastBgError, setLastBgError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getLastBackgroundTaskError().then(setLastBgError);
+  }, []);
+
   const {
     thresholdC,
     setThresholdC,
@@ -376,7 +383,7 @@ export default function SettingsScreen() {
 
           <View style={styles.aboutRow}>
             <Text style={[styles.aboutLabel, { color: colors.mutedForeground }]}>Geliştirici</Text>
-            <Text style={[styles.aboutValue, { color: colors.cardForeground }]}>SerdarMSC</Text>
+            <Text style={[styles.aboutValue, { color: colors.cardForeground }]}>Coder SerdarMSC</Text>
           </View>
 
           <Pressable onPress={handleOpenGithub} style={({ pressed }) => [styles.aboutLinkRow, { opacity: pressed ? 0.6 : 1 }]}>
@@ -394,6 +401,18 @@ export default function SettingsScreen() {
           <Text style={[styles.aboutLicense, { color: colors.mutedForeground }]}>
             MIT License altında yayımlanmıştır. Kaynak kodu ve katkılar için GitHub deposunu ziyaret edebilirsiniz.
           </Text>
+
+          {lastBgError ? (
+            <>
+              <View style={styles.divider} />
+              <Text style={[styles.aboutLabel, { color: colors.mutedForeground, fontSize: 11 }]}>
+                Son arka plan hatası (tanı amaçlı):
+              </Text>
+              <Text style={[styles.aboutLicense, { color: colors.destructive, textAlign: "left" }]}>
+                {lastBgError}
+              </Text>
+            </>
+          ) : null}
         </View>
       </View>
     </ScrollView>
