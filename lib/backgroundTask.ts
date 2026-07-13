@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 
 import { obdEngine } from "./obdEngine";
@@ -29,29 +30,52 @@ export interface MonitorRefs {
   onReading: (temp: number | null, error?: string) => void;
 }
 
+const LAST_ERROR_STORAGE_KEY = "obd:lastBackgroundTaskError";
+
 let activeRefs: MonitorRefs | null = null;
 
 const monitorTask = async () => {
   const service = BackgroundServiceModule!;
   while (service.isRunning()) {
     const refs = activeRefs;
-    if (refs && obdEngine.isConnected()) {
-      try {
+    // Everything in this iteration — including refs.onReading(), which now
+    // also triggers alert notifications / the looping alarm sound / the
+    // in-app acknowledge modal — is wrapped in try/catch. Previously only
+    // the queryCoolantTemp() call was protected; an uncaught error from
+    // ANYTHING downstream (e.g. starting the looping alert sound) would
+    // propagate out of this async function entirely and silently kill the
+    // while loop for good, freezing all future readings until the user
+    // manually stopped and restarted monitoring.
+    try {
+      if (refs && obdEngine.isConnected()) {
         const temp = await obdEngine.queryCoolantTemp();
-        // Threshold checking, alert cooldown, history logging, and firing
-        // the notification are all handled centrally by ObdContext's
-        // handleReading (refs.onReading) — this keeps behavior identical
-        // whether a reading comes from this background loop or from the
-        // foreground live-polling loop, instead of duplicating (and
-        // potentially diverging) the alert logic in two places.
         refs.onReading(temp, temp === null ? obdEngine.getLastRawResponse() : undefined);
-      } catch (err) {
-        refs?.onReading(null, err instanceof Error ? err.message : "Okuma hatası");
       }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      try {
+        refs?.onReading(null, message);
+      } catch {
+        // even the error-reporting call failed — nothing more we can do
+        // for this iteration, but the loop itself must keep running.
+      }
+      AsyncStorage.setItem(
+        LAST_ERROR_STORAGE_KEY,
+        `${new Date().toISOString()}: ${message}`,
+      ).catch(() => {});
     }
     await service.sleep(refs?.pollIntervalMs.current ?? 3000);
   }
 };
+
+/** Returns the last uncaught error from the background monitoring loop, if any — for diagnostics. */
+export async function getLastBackgroundTaskError(): Promise<string | null> {
+  try {
+    return await AsyncStorage.getItem(LAST_ERROR_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
 
 export async function startBackgroundMonitoring(refs: MonitorRefs): Promise<void> {
   if (!BackgroundServiceModule) {
