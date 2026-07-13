@@ -31,12 +31,29 @@ export interface MonitorRefs {
 }
 
 const LAST_ERROR_STORAGE_KEY = "obd:lastBackgroundTaskError";
+const TASK_STARTED_STORAGE_KEY = "obd:backgroundTaskStartedAt";
 
 let activeRefs: MonitorRefs | null = null;
 
+// react-native-background-actions' own isRunning() has been unreliable in
+// practice — the while loop was seen to exit immediately (or never run at
+// all) even right after start(), presumably because isRunning() doesn't
+// flip to true synchronously with the task actually beginning. Rather than
+// trust that, we track our own "should this loop keep going" flag,
+// explicitly set true right before starting and false right before
+// stopping — so the loop's continuation no longer depends on the
+// library's internal timing.
+let shouldKeepRunning = false;
+
 const monitorTask = async () => {
+  // Written the instant this function is actually invoked by the native
+  // module, before any loop condition is checked — if monitoring "does
+  // nothing" again, checking this timestamp (surfaced in Settings) tells
+  // us whether the task ever ran at all vs. ran but exited immediately.
+  AsyncStorage.setItem(TASK_STARTED_STORAGE_KEY, new Date().toISOString()).catch(() => {});
+
   const service = BackgroundServiceModule!;
-  while (service.isRunning()) {
+  while (shouldKeepRunning) {
     const refs = activeRefs;
     // Everything in this iteration — including refs.onReading(), which now
     // also triggers alert notifications / the looping alarm sound / the
@@ -77,6 +94,15 @@ export async function getLastBackgroundTaskError(): Promise<string | null> {
   }
 }
 
+/** Returns when the background loop last actually started executing, if ever — for diagnostics. */
+export async function getLastBackgroundTaskStartedAt(): Promise<string | null> {
+  try {
+    return await AsyncStorage.getItem(TASK_STARTED_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
 export async function startBackgroundMonitoring(refs: MonitorRefs): Promise<void> {
   if (!BackgroundServiceModule) {
     throw new Error(
@@ -84,6 +110,7 @@ export async function startBackgroundMonitoring(refs: MonitorRefs): Promise<void
     );
   }
   activeRefs = refs;
+  shouldKeepRunning = true;
   const options = {
     taskName: "OBD Sıcaklık İzleme",
     taskTitle: "Motor sıcaklığı izleniyor",
@@ -102,11 +129,12 @@ export async function startBackgroundMonitoring(refs: MonitorRefs): Promise<void
 }
 
 export async function stopBackgroundMonitoring(): Promise<void> {
+  shouldKeepRunning = false;
   activeRefs = null;
   if (!BackgroundServiceModule) return;
   await BackgroundServiceModule.stop();
 }
 
 export function isBackgroundMonitoringRunning(): boolean {
-  return BackgroundServiceModule?.isRunning() ?? false;
+  return shouldKeepRunning;
 }
