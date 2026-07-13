@@ -18,6 +18,7 @@ type NativeBluetoothClassic = {
   getBondedDevices: () => Promise<Array<{ id?: string; address?: string; name?: string }>>;
   connectToDevice: (address: string, options?: Record<string, unknown>) => Promise<NativeDevice>;
   isDeviceConnected?: (address: string) => Promise<boolean>;
+  getConnectedDevice?: (address: string) => Promise<NativeDevice>;
 };
 
 type NativeDevice = {
@@ -163,6 +164,44 @@ class ObdEngineSingleton {
   }
 
   // ========== GÜNCELLENMİŞ connect METODU ==========
+  /**
+   * react-native-background-actions runs its task via Android's HeadlessJS
+   * mechanism (AppRegistry.registerHeadlessTask), which can execute in a
+   * genuinely separate JS instance from the main app. When that happens,
+   * this singleton is a fresh object with `device: null` even though the
+   * underlying native Bluetooth socket (owned by the native module, which
+   * IS shared across JS instances at the Android process level) is still
+   * actually connected. Calling connect() again in that state would either
+   * hit "already attempting connection" or needlessly tear down and
+   * re-establish a working connection.
+   *
+   * This reclaims the existing native connection via getConnectedDevice()
+   * first (no new socket, no re-running the AT init sequence) and only
+   * falls back to a full connect() if there truly is no live connection.
+   */
+  async reclaimOrConnect(address: string): Promise<void> {
+    if (this.isConnected()) return;
+    if (!nativeModule) {
+      throw new Error(unavailableReason ?? "Bluetooth kullanılamıyor.");
+    }
+
+    if (nativeModule.getConnectedDevice) {
+      try {
+        const device = await nativeModule.getConnectedDevice(address);
+        if (device) {
+          this.device = device;
+          this.setStatus("connected");
+          return;
+        }
+      } catch {
+        // Not actually connected at the native level either — fall
+        // through to a normal fresh connect() below.
+      }
+    }
+
+    await this.connect(address);
+  }
+
   async connect(address: string): Promise<void> {
     if (!nativeModule) {
       throw new Error(unavailableReason ?? "Bluetooth kullanılamıyor.");

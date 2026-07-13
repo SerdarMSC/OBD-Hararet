@@ -27,6 +27,7 @@ export function isBackgroundServiceAvailable(): boolean {
 
 export interface MonitorRefs {
   pollIntervalMs: { current: number };
+  deviceAddress: { current: string | null };
   onReading: (temp: number | null, error?: string) => void;
 }
 
@@ -64,9 +65,17 @@ const monitorTask = async () => {
     // while loop for good, freezing all future readings until the user
     // manually stopped and restarted monitoring.
     try {
-      if (refs && obdEngine.isConnected()) {
-        const temp = await obdEngine.queryCoolantTemp();
-        refs.onReading(temp, temp === null ? obdEngine.getLastRawResponse() : undefined);
+      if (refs) {
+        if (!obdEngine.isConnected() && refs.deviceAddress.current) {
+          // Likely running in a separate HeadlessJS instance (see
+          // reclaimOrConnect's doc comment) — reclaim the existing native
+          // connection instead of assuming there isn't one.
+          await obdEngine.reclaimOrConnect(refs.deviceAddress.current);
+        }
+        if (obdEngine.isConnected()) {
+          const temp = await obdEngine.queryCoolantTemp();
+          refs.onReading(temp, temp === null ? obdEngine.getLastRawResponse() : undefined);
+        }
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
