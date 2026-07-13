@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useObd } from "@/context/ObdContext";
 import { useColors } from "@/hooks/useColors";
 import { ALERT_SOUND_OPTIONS } from "@/lib/alertSounds";
-import { getLastBackgroundTaskError, getLastBackgroundTaskStartedAt } from "@/lib/backgroundTask";
+import { getLastBackgroundTaskError, getLastBackgroundTaskStartedAt, getLastBackgroundTaskTrace } from "@/lib/backgroundTask";
 
 const THRESHOLD_STEP = 1;
 const MIN_THRESHOLD = 70;
@@ -46,11 +46,17 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const [lastBgError, setLastBgError] = useState<string | null>(null);
   const [lastBgStartedAt, setLastBgStartedAt] = useState<string | null>(null);
+  const [lastBgTrace, setLastBgTrace] = useState<string | null>(null);
 
-  useEffect(() => {
+  const refreshDiagnostics = useCallback(() => {
     getLastBackgroundTaskError().then(setLastBgError);
     getLastBackgroundTaskStartedAt().then(setLastBgStartedAt);
+    getLastBackgroundTaskTrace().then(setLastBgTrace);
   }, []);
+
+  useEffect(() => {
+    refreshDiagnostics();
+  }, [refreshDiagnostics]);
 
   const {
     thresholdC,
@@ -434,6 +440,19 @@ export default function SettingsScreen() {
               </Text>
             </>
           ) : null}
+
+          <View style={styles.divider} />
+          <View style={styles.aboutRow}>
+            <Text style={[styles.aboutLabel, { color: colors.mutedForeground, fontSize: 11 }]}>
+              Son adım izi (tanı amaçlı):
+            </Text>
+            <Pressable onPress={refreshDiagnostics} hitSlop={8}>
+              <Feather name="refresh-cw" size={14} color={colors.primary} />
+            </Pressable>
+          </View>
+          <Text style={[styles.aboutLicense, { color: colors.mutedForeground, textAlign: "left" }]}>
+            {lastBgTrace ?? "Henüz yok."}
+          </Text>
         </View>
       </View>
     </ScrollView>
