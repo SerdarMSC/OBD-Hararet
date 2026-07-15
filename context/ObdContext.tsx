@@ -29,12 +29,25 @@ import {
   DEFAULT_ALERT_SOUND_ID,
   ensureAlertSoundChannels,
   previewAlertSound,
+  sendCustomAlert,
   sendTemperatureAlert,
   startLoopingAlert,
   stopLoopingAlert,
 } from "@/lib/alertSounds";
 
 const ALERT_COOLDOWN_MS = 60_000;
+
+const DEFAULT_VOLTAGE_THRESHOLD = 12;
+export const MIN_VOLTAGE_THRESHOLD = 10;
+export const MAX_VOLTAGE_THRESHOLD = 26;
+
+const DEFAULT_OIL_TEMP_THRESHOLD = 110;
+export const MIN_OIL_TEMP_THRESHOLD = 80;
+export const MAX_OIL_TEMP_THRESHOLD = 180;
+
+const DEFAULT_EGT_THRESHOLD = 750;
+export const MIN_EGT_THRESHOLD = 500;
+export const MAX_EGT_THRESHOLD = 1000;
 
 export interface AlertLogEntry {
   id: string;
@@ -92,8 +105,30 @@ interface ObdContextValue {
   setAlertSoundId: (value: string) => void;
   previewSelectedAlertSound: () => Promise<void>;
 
-  activeAlertTemp: number | null;
+  activeAlerts: { id: string; title: string; message: string }[];
   acknowledgeAlert: () => void;
+
+  // Optional sensors — off by default, each independently toggleable.
+  voltageEnabled: boolean;
+  setVoltageEnabled: (value: boolean) => void;
+  voltageThreshold: number;
+  setVoltageThreshold: (value: number) => void;
+  voltageValue: number | null;
+  voltageNote: string | null;
+
+  oilTempEnabled: boolean;
+  setOilTempEnabled: (value: boolean) => void;
+  oilTempThreshold: number;
+  setOilTempThreshold: (value: number) => void;
+  oilTempValue: number | null;
+  oilTempNote: string | null;
+
+  egtEnabled: boolean;
+  setEgtEnabled: (value: boolean) => void;
+  egtThreshold: number;
+  setEgtThreshold: (value: number) => void;
+  egtValue: number | null;
+  egtNote: string | null;
 }
 
 const STORAGE_KEYS = {
@@ -106,6 +141,12 @@ const STORAGE_KEYS = {
   autoConnect: "obd:autoConnectLastDevice",
   autoBackground: "obd:autoBackgroundOnConnect",
   alertSound: "obd:alertSoundId",
+  voltageEnabled: "obd:voltageEnabled",
+  voltageThreshold: "obd:voltageThreshold",
+  oilTempEnabled: "obd:oilTempEnabled",
+  oilTempThreshold: "obd:oilTempThreshold",
+  egtEnabled: "obd:egtEnabled",
+  egtThreshold: "obd:egtThreshold",
 };
 
 const DEFAULT_THRESHOLD_C = 105;
@@ -123,7 +164,7 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
   const [temperatureC, setTemperatureC] = useState<number | null>(null);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [lastReadingNote, setLastReadingNote] = useState<string | null>(null);
-  const [activeAlertTemp, setActiveAlertTemp] = useState<number | null>(null);
+  const [activeAlertsMap, setActiveAlertsMap] = useState<Record<string, { title: string; message: string }>>({});
 
   const [thresholdC, setThresholdCState] = useState(DEFAULT_THRESHOLD_C);
   const [pollIntervalMs, setPollIntervalMsState] = useState(DEFAULT_POLL_INTERVAL_MS);
@@ -132,6 +173,21 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
   const [autoConnectLastDevice, setAutoConnectLastDeviceState] = useState(false);
   const [autoBackgroundOnConnect, setAutoBackgroundOnConnectState] = useState(false);
   const [alertSoundId, setAlertSoundIdState] = useState(DEFAULT_ALERT_SOUND_ID);
+
+  const [voltageEnabled, setVoltageEnabledState] = useState(false);
+  const [voltageThreshold, setVoltageThresholdState] = useState(DEFAULT_VOLTAGE_THRESHOLD);
+  const [voltageValue, setVoltageValue] = useState<number | null>(null);
+  const [voltageNote, setVoltageNote] = useState<string | null>(null);
+
+  const [oilTempEnabled, setOilTempEnabledState] = useState(false);
+  const [oilTempThreshold, setOilTempThresholdState] = useState(DEFAULT_OIL_TEMP_THRESHOLD);
+  const [oilTempValue, setOilTempValue] = useState<number | null>(null);
+  const [oilTempNote, setOilTempNote] = useState<string | null>(null);
+
+  const [egtEnabled, setEgtEnabledState] = useState(false);
+  const [egtThreshold, setEgtThresholdState] = useState(DEFAULT_EGT_THRESHOLD);
+  const [egtValue, setEgtValue] = useState<number | null>(null);
+  const [egtNote, setEgtNote] = useState<string | null>(null);
 
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [alertHistory, setAlertHistory] = useState<AlertLogEntry[]>([]);
@@ -150,6 +206,24 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
   alertSoundIdRef.current = alertSoundId;
   deviceAddressRef.current = selectedDevice?.address ?? null;
 
+  const voltageEnabledRef = useRef(voltageEnabled);
+  const voltageThresholdRef = useRef(voltageThreshold);
+  const voltageLastAlertAtRef = useRef(0);
+  voltageEnabledRef.current = voltageEnabled;
+  voltageThresholdRef.current = voltageThreshold;
+
+  const oilTempEnabledRef = useRef(oilTempEnabled);
+  const oilTempThresholdRef = useRef(oilTempThreshold);
+  const oilTempLastAlertAtRef = useRef(0);
+  oilTempEnabledRef.current = oilTempEnabled;
+  oilTempThresholdRef.current = oilTempThreshold;
+
+  const egtEnabledRef = useRef(egtEnabled);
+  const egtThresholdRef = useRef(egtThreshold);
+  const egtLastAlertAtRef = useRef(0);
+  egtEnabledRef.current = egtEnabled;
+  egtThresholdRef.current = egtThreshold;
+
   // Hydrate persisted settings.
   useEffect(() => {
     (async () => {
@@ -165,6 +239,12 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
           autoConnectRaw,
           autoBackgroundRaw,
           alertSoundRaw,
+          voltageEnabledRaw,
+          voltageThresholdRaw,
+          oilTempEnabledRaw,
+          oilTempThresholdRaw,
+          egtEnabledRaw,
+          egtThresholdRaw,
         ] = await Promise.all([
           AsyncStorage.getItem(STORAGE_KEYS.device),
           AsyncStorage.getItem(STORAGE_KEYS.threshold),
@@ -176,6 +256,12 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem(STORAGE_KEYS.autoConnect),
           AsyncStorage.getItem(STORAGE_KEYS.autoBackground),
           AsyncStorage.getItem(STORAGE_KEYS.alertSound),
+          AsyncStorage.getItem(STORAGE_KEYS.voltageEnabled),
+          AsyncStorage.getItem(STORAGE_KEYS.voltageThreshold),
+          AsyncStorage.getItem(STORAGE_KEYS.oilTempEnabled),
+          AsyncStorage.getItem(STORAGE_KEYS.oilTempThreshold),
+          AsyncStorage.getItem(STORAGE_KEYS.egtEnabled),
+          AsyncStorage.getItem(STORAGE_KEYS.egtThreshold),
         ]);
         ensureAlertSoundChannels().catch(() => {});
         if (deviceRaw) setSelectedDevice(JSON.parse(deviceRaw));
@@ -196,6 +282,12 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
         if (autoConnectRaw) setAutoConnectLastDeviceState(autoConnectRaw === "1");
         if (autoBackgroundRaw) setAutoBackgroundOnConnectState(autoBackgroundRaw === "1");
         if (alertSoundRaw) setAlertSoundIdState(alertSoundRaw);
+        if (voltageEnabledRaw) setVoltageEnabledState(voltageEnabledRaw === "1");
+        if (voltageThresholdRaw) setVoltageThresholdState(Number(voltageThresholdRaw));
+        if (oilTempEnabledRaw) setOilTempEnabledState(oilTempEnabledRaw === "1");
+        if (oilTempThresholdRaw) setOilTempThresholdState(Number(oilTempThresholdRaw));
+        if (egtEnabledRaw) setEgtEnabledState(egtEnabledRaw === "1");
+        if (egtThresholdRaw) setEgtThresholdState(Number(egtThresholdRaw));
       } catch {
         // ignore corrupt storage — defaults already applied
       } finally {
@@ -270,6 +362,9 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
     await obdEngine.disconnect();
     setTemperatureC(null);
     setLastUpdated(null);
+    setVoltageValue(null);
+    setOilTempValue(null);
+    setEgtValue(null);
   }, []);
 
   const persistAlerts = useCallback((entries: AlertLogEntry[]) => {
@@ -290,6 +385,25 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
     [persistAlerts],
   );
 
+  const triggerAlert = useCallback((id: string, title: string, message: string, soundId: string) => {
+    setActiveAlertsMap((prev) => ({ ...prev, [id]: { title, message } }));
+    startLoopingAlert(soundId).catch(() => {});
+  }, []);
+
+  const clearAlert = useCallback((id: string) => {
+    setActiveAlertsMap((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      if (Object.keys(next).length === 0) {
+        // No other sensor is currently in an alert state — safe to stop
+        // the shared looping sound.
+        stopLoopingAlert();
+      }
+      return next;
+    });
+  }, []);
+
   const handleReading = useCallback(
     (temp: number | null, note?: string) => {
       if (temp !== null) {
@@ -302,8 +416,12 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
           if (now - lastAlertAtRef.current > ALERT_COOLDOWN_MS) {
             lastAlertAtRef.current = now;
             handleAlert(temp);
-            setActiveAlertTemp(temp);
-            startLoopingAlert(alertSoundIdRef.current ?? DEFAULT_ALERT_SOUND_ID).catch(() => {});
+            triggerAlert(
+              "coolant",
+              "Motor sıcaklığı yüksek!",
+              `Motor sıcaklığı ${temp}°C'ye ulaştı. Aracı kontrol edin.`,
+              alertSoundIdRef.current ?? DEFAULT_ALERT_SOUND_ID,
+            );
             sendTemperatureAlert(alertSoundIdRef.current ?? DEFAULT_ALERT_SOUND_ID, temp).catch(() => {
               // notification permissions may not be granted yet — reading is still logged in-app
             });
@@ -311,23 +429,92 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
         } else {
           // Temperature is back under the threshold on its own — stop the
           // looping alarm and dismiss the acknowledge banner automatically,
-          // even if the user never tapped "Onayla". Using the functional
-          // setState form avoids needing activeAlertTemp in the dependency
-          // array below (which would otherwise make this callback's
-          // identity change on every alert, including inside the
-          // background task's captured refs).
-          setActiveAlertTemp((prev) => {
-            if (prev !== null) {
-              stopLoopingAlert();
-            }
-            return null;
-          });
+          // even if the user never tapped "Onayla".
+          clearAlert("coolant");
         }
       } else if (note) {
         setLastReadingNote(note);
       }
     },
-    [handleAlert],
+    [handleAlert, triggerAlert, clearAlert],
+  );
+
+  const handleVoltageReading = useCallback(
+    (value: number | null, note?: string) => {
+      if (!voltageEnabledRef.current) return;
+      if (value !== null) {
+        setVoltageValue(value);
+        setVoltageNote(null);
+        if (value <= voltageThresholdRef.current) {
+          const now = Date.now();
+          if (now - voltageLastAlertAtRef.current > ALERT_COOLDOWN_MS) {
+            voltageLastAlertAtRef.current = now;
+            const message = `Akü voltajı ${value}V'a düştü.`;
+            triggerAlert("voltage", "Akü voltajı düşük!", message, alertSoundIdRef.current ?? DEFAULT_ALERT_SOUND_ID);
+            sendCustomAlert(alertSoundIdRef.current ?? DEFAULT_ALERT_SOUND_ID, "Akü voltajı düşük!", message).catch(
+              () => {},
+            );
+          }
+        } else {
+          clearAlert("voltage");
+        }
+      } else if (note) {
+        setVoltageNote(note);
+      }
+    },
+    [triggerAlert, clearAlert],
+  );
+
+  const handleOilTempReading = useCallback(
+    (value: number | null, note?: string) => {
+      if (!oilTempEnabledRef.current) return;
+      if (value !== null) {
+        setOilTempValue(value);
+        setOilTempNote(null);
+        if (value >= oilTempThresholdRef.current) {
+          const now = Date.now();
+          if (now - oilTempLastAlertAtRef.current > ALERT_COOLDOWN_MS) {
+            oilTempLastAlertAtRef.current = now;
+            const message = `Motor yağ sıcaklığı ${value}°C'ye ulaştı.`;
+            triggerAlert("oilTemp", "Yağ sıcaklığı yüksek!", message, alertSoundIdRef.current ?? DEFAULT_ALERT_SOUND_ID);
+            sendCustomAlert(alertSoundIdRef.current ?? DEFAULT_ALERT_SOUND_ID, "Yağ sıcaklığı yüksek!", message).catch(
+              () => {},
+            );
+          }
+        } else {
+          clearAlert("oilTemp");
+        }
+      } else if (note) {
+        setOilTempNote(note);
+      }
+    },
+    [triggerAlert, clearAlert],
+  );
+
+  const handleEgtReading = useCallback(
+    (value: number | null, note?: string) => {
+      if (!egtEnabledRef.current) return;
+      if (value !== null) {
+        setEgtValue(value);
+        setEgtNote(null);
+        if (value >= egtThresholdRef.current) {
+          const now = Date.now();
+          if (now - egtLastAlertAtRef.current > ALERT_COOLDOWN_MS) {
+            egtLastAlertAtRef.current = now;
+            const message = `Egzoz gazı sıcaklığı (EGT) ${value}°C'ye ulaştı.`;
+            triggerAlert("egt", "EGT sıcaklığı yüksek!", message, alertSoundIdRef.current ?? DEFAULT_ALERT_SOUND_ID);
+            sendCustomAlert(alertSoundIdRef.current ?? DEFAULT_ALERT_SOUND_ID, "EGT sıcaklığı yüksek!", message).catch(
+              () => {},
+            );
+          }
+        } else {
+          clearAlert("egt");
+        }
+      } else if (note) {
+        setEgtNote(note);
+      }
+    },
+    [triggerAlert, clearAlert],
   );
 
   // Foreground live readings: as soon as the adapter is connected, read the
@@ -352,6 +539,32 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
           handleReading(null, err instanceof Error ? err.message : "Okuma hatası");
         }
       }
+
+      if (!cancelled && voltageEnabledRef.current) {
+        try {
+          const v = await obdEngine.queryBatteryVoltage();
+          if (!cancelled) handleVoltageReading(v, v === null ? obdEngine.getLastRawVoltageResponse() : undefined);
+        } catch (err) {
+          if (!cancelled) handleVoltageReading(null, err instanceof Error ? err.message : "Okuma hatası");
+        }
+      }
+      if (!cancelled && oilTempEnabledRef.current) {
+        try {
+          const o = await obdEngine.queryOilTemp();
+          if (!cancelled) handleOilTempReading(o, o === null ? obdEngine.getLastRawOilTempResponse() : undefined);
+        } catch (err) {
+          if (!cancelled) handleOilTempReading(null, err instanceof Error ? err.message : "Okuma hatası");
+        }
+      }
+      if (!cancelled && egtEnabledRef.current) {
+        try {
+          const g = await obdEngine.queryEgt();
+          if (!cancelled) handleEgtReading(g, g === null ? obdEngine.getLastRawEgtResponse() : undefined);
+        } catch (err) {
+          if (!cancelled) handleEgtReading(null, err instanceof Error ? err.message : "Okuma hatası");
+        }
+      }
+
       if (!cancelled) {
         timeoutId = setTimeout(poll, pollIntervalRef.current);
       }
@@ -363,16 +576,19 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [connectionStatus, isMonitoring, handleReading]);
+  }, [connectionStatus, isMonitoring, handleReading, handleVoltageReading, handleOilTempReading, handleEgtReading]);
 
   const startMonitoring = useCallback(async () => {
     await startBackgroundMonitoring({
       pollIntervalMs: pollIntervalRef,
       deviceAddress: deviceAddressRef,
       onReading: handleReading,
+      voltage: { enabled: voltageEnabledRef, onReading: handleVoltageReading },
+      oilTemp: { enabled: oilTempEnabledRef, onReading: handleOilTempReading },
+      egt: { enabled: egtEnabledRef, onReading: handleEgtReading },
     });
     setIsMonitoring(true);
-  }, [handleReading]);
+  }, [handleReading, handleVoltageReading, handleOilTempReading, handleEgtReading]);
 
   const stopMonitoring = useCallback(async () => {
     await stopBackgroundMonitoring();
@@ -440,7 +656,52 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
 
   const acknowledgeAlert = useCallback(() => {
     stopLoopingAlert();
-    setActiveAlertTemp(null);
+    setActiveAlertsMap({});
+  }, []);
+
+  const setVoltageEnabled = useCallback((value: boolean) => {
+    setVoltageEnabledState(value);
+    AsyncStorage.setItem(STORAGE_KEYS.voltageEnabled, value ? "1" : "0").catch(() => {});
+    if (!value) {
+      setVoltageValue(null);
+      setVoltageNote(null);
+      clearAlert("voltage");
+    }
+  }, [clearAlert]);
+
+  const setVoltageThreshold = useCallback((value: number) => {
+    setVoltageThresholdState(value);
+    AsyncStorage.setItem(STORAGE_KEYS.voltageThreshold, String(value)).catch(() => {});
+  }, []);
+
+  const setOilTempEnabled = useCallback((value: boolean) => {
+    setOilTempEnabledState(value);
+    AsyncStorage.setItem(STORAGE_KEYS.oilTempEnabled, value ? "1" : "0").catch(() => {});
+    if (!value) {
+      setOilTempValue(null);
+      setOilTempNote(null);
+      clearAlert("oilTemp");
+    }
+  }, [clearAlert]);
+
+  const setOilTempThreshold = useCallback((value: number) => {
+    setOilTempThresholdState(value);
+    AsyncStorage.setItem(STORAGE_KEYS.oilTempThreshold, String(value)).catch(() => {});
+  }, []);
+
+  const setEgtEnabled = useCallback((value: boolean) => {
+    setEgtEnabledState(value);
+    AsyncStorage.setItem(STORAGE_KEYS.egtEnabled, value ? "1" : "0").catch(() => {});
+    if (!value) {
+      setEgtValue(null);
+      setEgtNote(null);
+      clearAlert("egt");
+    }
+  }, [clearAlert]);
+
+  const setEgtThreshold = useCallback((value: number) => {
+    setEgtThresholdState(value);
+    AsyncStorage.setItem(STORAGE_KEYS.egtThreshold, String(value)).catch(() => {});
   }, []);
 
   const clearAlertHistory = useCallback(() => {
@@ -460,6 +721,11 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
     const sub = AppState.addEventListener("change", () => {});
     return () => sub.remove();
   }, []);
+
+  const activeAlerts = useMemo(
+    () => Object.entries(activeAlertsMap).map(([id, alert]) => ({ id, ...alert })),
+    [activeAlertsMap],
+  );
 
   const value = useMemo<ObdContextValue>(
     () => ({
@@ -500,8 +766,26 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
       alertSoundId,
       setAlertSoundId,
       previewSelectedAlertSound,
-      activeAlertTemp,
+      activeAlerts,
       acknowledgeAlert,
+      voltageEnabled,
+      setVoltageEnabled,
+      voltageThreshold,
+      setVoltageThreshold,
+      voltageValue,
+      voltageNote,
+      oilTempEnabled,
+      setOilTempEnabled,
+      oilTempThreshold,
+      setOilTempThreshold,
+      oilTempValue,
+      oilTempNote,
+      egtEnabled,
+      setEgtEnabled,
+      egtThreshold,
+      setEgtThreshold,
+      egtValue,
+      egtNote,
     }),
     [
       bluetoothPermissionGranted,
@@ -538,8 +822,26 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
       alertSoundId,
       setAlertSoundId,
       previewSelectedAlertSound,
-      activeAlertTemp,
+      activeAlerts,
       acknowledgeAlert,
+      voltageEnabled,
+      setVoltageEnabled,
+      voltageThreshold,
+      setVoltageThreshold,
+      voltageValue,
+      voltageNote,
+      oilTempEnabled,
+      setOilTempEnabled,
+      oilTempThreshold,
+      setOilTempThreshold,
+      oilTempValue,
+      oilTempNote,
+      egtEnabled,
+      setEgtEnabled,
+      egtThreshold,
+      setEgtThreshold,
+      egtValue,
+      egtNote,
     ],
   );
 
