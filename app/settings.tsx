@@ -14,6 +14,18 @@ const THRESHOLD_STEP = 1;
 const MIN_THRESHOLD = 70;
 const MAX_THRESHOLD = 130;
 
+const VOLTAGE_STEP = 0.5;
+const MIN_VOLTAGE = 10;
+const MAX_VOLTAGE = 26;
+
+const OIL_TEMP_STEP = 5;
+const MIN_OIL_TEMP = 80;
+const MAX_OIL_TEMP = 180;
+
+const EGT_STEP = 10;
+const MIN_EGT = 500;
+const MAX_EGT = 1000;
+
 const APP_NAME = Constants.expoConfig?.name ?? "OBD Sıcaklık İzleyici";
 const APP_VERSION = Constants.expoConfig?.version ?? "—";
 const APP_BUILD_NUMBER = Constants.expoConfig?.android?.versionCode ?? "—";
@@ -78,6 +90,18 @@ export default function SettingsScreen() {
     alertSoundId,
     setAlertSoundId,
     previewSelectedAlertSound,
+    voltageEnabled,
+    setVoltageEnabled,
+    voltageThreshold,
+    setVoltageThreshold,
+    oilTempEnabled,
+    setOilTempEnabled,
+    oilTempThreshold,
+    setOilTempThreshold,
+    egtEnabled,
+    setEgtEnabled,
+    egtThreshold,
+    setEgtThreshold,
   } = useObd();
 
   const adjustThreshold = useCallback(
@@ -87,6 +111,33 @@ export default function SettingsScreen() {
       setThresholdC(next);
     },
     [setThresholdC, thresholdC],
+  );
+
+  const adjustVoltageThreshold = useCallback(
+    (delta: number) => {
+      const next = Math.round(Math.min(MAX_VOLTAGE, Math.max(MIN_VOLTAGE, voltageThreshold + delta)) * 10) / 10;
+      Haptics.selectionAsync();
+      setVoltageThreshold(next);
+    },
+    [setVoltageThreshold, voltageThreshold],
+  );
+
+  const adjustOilTempThreshold = useCallback(
+    (delta: number) => {
+      const next = Math.min(MAX_OIL_TEMP, Math.max(MIN_OIL_TEMP, oilTempThreshold + delta));
+      Haptics.selectionAsync();
+      setOilTempThreshold(next);
+    },
+    [setOilTempThreshold, oilTempThreshold],
+  );
+
+  const adjustEgtThreshold = useCallback(
+    (delta: number) => {
+      const next = Math.min(MAX_EGT, Math.max(MIN_EGT, egtThreshold + delta));
+      Haptics.selectionAsync();
+      setEgtThreshold(next);
+    },
+    [setEgtThreshold, egtThreshold],
   );
 
   const handleEnableNotifications = useCallback(async () => {
@@ -248,6 +299,124 @@ export default function SettingsScreen() {
           <Text style={[styles.helperText, { color: colors.mutedForeground }]}>
             Adaptöre bağlanma denemesi bu süre içinde tamamlanmazsa iptal edilir.
           </Text>
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>Ek sensörler</Text>
+        <View style={[styles.card, { backgroundColor: colors.card, borderRadius: colors.radius }]}>
+          <Text style={[styles.helperText, { color: colors.mutedForeground }]}>
+            Gerekli görülürse açılabilen, isteğe bağlı sorgular. Açık olanlar ana ekranda göstergenin altında ayrı bir
+            satır olarak görünür.
+          </Text>
+
+          <View style={styles.divider} />
+
+          <View style={styles.notificationRow}>
+            <View style={styles.notificationInfo}>
+              <Text style={[styles.notificationTitle, { color: colors.cardForeground }]}>Akü voltajı</Text>
+              <Text style={[styles.helperText, { color: colors.mutedForeground }]}>
+                Voltaj bu değerin altına düşerse uyarı verilir.
+              </Text>
+            </View>
+            <Switch
+              value={voltageEnabled}
+              onValueChange={(value) => {
+                Haptics.selectionAsync();
+                setVoltageEnabled(value);
+              }}
+              trackColor={{ true: colors.primary, false: colors.secondary }}
+            />
+          </View>
+          {voltageEnabled ? (
+            <View style={styles.thresholdRow}>
+              <Pressable
+                onPress={() => adjustVoltageThreshold(-VOLTAGE_STEP)}
+                style={({ pressed }) => [styles.stepButton, { backgroundColor: colors.secondary, opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Feather name="minus" size={18} color={colors.foreground} />
+              </Pressable>
+              <Text style={[styles.thresholdValue, { color: colors.cardForeground }]}>{voltageThreshold}V</Text>
+              <Pressable
+                onPress={() => adjustVoltageThreshold(VOLTAGE_STEP)}
+                style={({ pressed }) => [styles.stepButton, { backgroundColor: colors.secondary, opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Feather name="plus" size={18} color={colors.foreground} />
+              </Pressable>
+            </View>
+          ) : null}
+
+          <View style={styles.divider} />
+
+          <View style={styles.notificationRow}>
+            <View style={styles.notificationInfo}>
+              <Text style={[styles.notificationTitle, { color: colors.cardForeground }]}>Motor yağ sıcaklığı</Text>
+              <Text style={[styles.helperText, { color: colors.mutedForeground }]}>
+                Sıcaklık bu değerin üzerine çıkarsa uyarı verilir.
+              </Text>
+            </View>
+            <Switch
+              value={oilTempEnabled}
+              onValueChange={(value) => {
+                Haptics.selectionAsync();
+                setOilTempEnabled(value);
+              }}
+              trackColor={{ true: colors.primary, false: colors.secondary }}
+            />
+          </View>
+          {oilTempEnabled ? (
+            <View style={styles.thresholdRow}>
+              <Pressable
+                onPress={() => adjustOilTempThreshold(-OIL_TEMP_STEP)}
+                style={({ pressed }) => [styles.stepButton, { backgroundColor: colors.secondary, opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Feather name="minus" size={18} color={colors.foreground} />
+              </Pressable>
+              <Text style={[styles.thresholdValue, { color: colors.cardForeground }]}>{oilTempThreshold}°C</Text>
+              <Pressable
+                onPress={() => adjustOilTempThreshold(OIL_TEMP_STEP)}
+                style={({ pressed }) => [styles.stepButton, { backgroundColor: colors.secondary, opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Feather name="plus" size={18} color={colors.foreground} />
+              </Pressable>
+            </View>
+          ) : null}
+
+          <View style={styles.divider} />
+
+          <View style={styles.notificationRow}>
+            <View style={styles.notificationInfo}>
+              <Text style={[styles.notificationTitle, { color: colors.cardForeground }]}>EGT (egzoz gazı) sıcaklığı</Text>
+              <Text style={[styles.helperText, { color: colors.mutedForeground }]}>
+                Sıcaklık bu değerin üzerine çıkarsa uyarı verilir.
+              </Text>
+            </View>
+            <Switch
+              value={egtEnabled}
+              onValueChange={(value) => {
+                Haptics.selectionAsync();
+                setEgtEnabled(value);
+              }}
+              trackColor={{ true: colors.primary, false: colors.secondary }}
+            />
+          </View>
+          {egtEnabled ? (
+            <View style={styles.thresholdRow}>
+              <Pressable
+                onPress={() => adjustEgtThreshold(-EGT_STEP)}
+                style={({ pressed }) => [styles.stepButton, { backgroundColor: colors.secondary, opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Feather name="minus" size={18} color={colors.foreground} />
+              </Pressable>
+              <Text style={[styles.thresholdValue, { color: colors.cardForeground }]}>{egtThreshold}°C</Text>
+              <Pressable
+                onPress={() => adjustEgtThreshold(EGT_STEP)}
+                style={({ pressed }) => [styles.stepButton, { backgroundColor: colors.secondary, opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Feather name="plus" size={18} color={colors.foreground} />
+              </Pressable>
+            </View>
+          ) : null}
         </View>
       </View>
 

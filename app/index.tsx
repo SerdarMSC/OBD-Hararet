@@ -42,6 +42,15 @@ export default function DashboardScreen() {
     alertHistory,
     notificationsEnabled,
     requestNotificationPermission,
+    voltageEnabled,
+    voltageThreshold,
+    voltageValue,
+    oilTempEnabled,
+    oilTempThreshold,
+    oilTempValue,
+    egtEnabled,
+    egtThreshold,
+    egtValue,
   } = useObd();
 
   const handleSelectDevice = useCallback(
@@ -164,6 +173,56 @@ export default function DashboardScreen() {
           ) : null}
         </View>
 
+        {voltageEnabled || oilTempEnabled || egtEnabled ? (
+          <View style={[styles.extraSensorsCard, { backgroundColor: colors.card, borderRadius: colors.radius }]}>
+            {voltageEnabled ? (
+              <View style={styles.extraSensorRow}>
+                <Text style={[styles.extraSensorLabel, { color: colors.mutedForeground }]}>Akü voltajı</Text>
+                <Text
+                  style={[
+                    styles.extraSensorValue,
+                    { color: voltageValue !== null && voltageValue <= voltageThreshold ? colors.destructive : colors.cardForeground },
+                  ]}
+                >
+                  {voltageValue !== null ? `${voltageValue}V` : "—"}
+                </Text>
+              </View>
+            ) : null}
+            {oilTempEnabled ? (
+              <>
+                {voltageEnabled ? <View style={styles.extraSensorDivider} /> : null}
+                <View style={styles.extraSensorRow}>
+                  <Text style={[styles.extraSensorLabel, { color: colors.mutedForeground }]}>Motor yağ sıcaklığı</Text>
+                  <Text
+                    style={[
+                      styles.extraSensorValue,
+                      { color: oilTempValue !== null && oilTempValue >= oilTempThreshold ? colors.destructive : colors.cardForeground },
+                    ]}
+                  >
+                    {oilTempValue !== null ? `${oilTempValue}°C` : "—"}
+                  </Text>
+                </View>
+              </>
+            ) : null}
+            {egtEnabled ? (
+              <>
+                {voltageEnabled || oilTempEnabled ? <View style={styles.extraSensorDivider} /> : null}
+                <View style={styles.extraSensorRow}>
+                  <Text style={[styles.extraSensorLabel, { color: colors.mutedForeground }]}>EGT sıcaklığı</Text>
+                  <Text
+                    style={[
+                      styles.extraSensorValue,
+                      { color: egtValue !== null && egtValue >= egtThreshold ? colors.destructive : colors.cardForeground },
+                    ]}
+                  >
+                    {egtValue !== null ? `${egtValue}°C` : "—"}
+                  </Text>
+                </View>
+              </>
+            ) : null}
+          </View>
+        ) : null}
+
         <Pressable
           onPress={handleToggleMonitoring}
           disabled={connectionStatus !== "connected" && !isMonitoring}
@@ -265,6 +324,28 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 8,
     lineHeight: 17,
+  },
+  extraSensorsCard: {
+    padding: 14,
+    gap: 4,
+  },
+  extraSensorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 4,
+  },
+  extraSensorLabel: {
+    fontSize: 14,
+  },
+  extraSensorValue: {
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  extraSensorDivider: {
+    height: 1,
+    backgroundColor: "rgba(128,128,128,0.15)",
+    marginVertical: 4,
   },
   monitorButton: {
     flexDirection: "row",
