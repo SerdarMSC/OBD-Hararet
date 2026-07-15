@@ -308,6 +308,20 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
               // notification permissions may not be granted yet — reading is still logged in-app
             });
           }
+        } else {
+          // Temperature is back under the threshold on its own — stop the
+          // looping alarm and dismiss the acknowledge banner automatically,
+          // even if the user never tapped "Onayla". Using the functional
+          // setState form avoids needing activeAlertTemp in the dependency
+          // array below (which would otherwise make this callback's
+          // identity change on every alert, including inside the
+          // background task's captured refs).
+          setActiveAlertTemp((prev) => {
+            if (prev !== null) {
+              stopLoopingAlert();
+            }
+            return null;
+          });
         }
       } else if (note) {
         setLastReadingNote(note);
