@@ -1,31 +1,36 @@
 import React from "react";
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { useObd } from "@/context/ObdContext";
 import { useColors } from "@/hooks/useColors";
 
 /**
- * Full-screen overlay shown whenever a temperature alert is active. The
+ * Full-screen overlay shown whenever one or more alerts (coolant
+ * temperature, battery voltage, oil temperature, EGT) are active. The
  * alarm sound keeps looping (see lib/alertSounds.ts) until the user
  * explicitly acknowledges it here — a plain notification is easy to miss
  * or swipe away without noticing, this cannot be dismissed accidentally.
  */
 export function AlertAcknowledgeOverlay() {
   const colors = useColors();
-  const { activeAlertTemp, acknowledgeAlert } = useObd();
+  const { activeAlerts, acknowledgeAlert } = useObd();
 
-  const visible = activeAlertTemp !== null;
+  const visible = activeAlerts.length > 0;
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={acknowledgeAlert}>
       <View style={[styles.backdrop, { backgroundColor: "rgba(0,0,0,0.75)" }]}>
         <View style={[styles.card, { backgroundColor: colors.card }]}>
-          <Text style={[styles.title, { color: colors.destructive }]}>Motor sıcaklığı yüksek!</Text>
-          <Text style={[styles.temp, { color: colors.cardForeground }]}>
-            {activeAlertTemp !== null ? `${activeAlertTemp}°C` : ""}
-          </Text>
-          <Text style={[styles.body, { color: colors.mutedForeground }]}>
-            Aracı kontrol edin. Onaylayana kadar uyarı sesi çalmaya devam eder.
+          <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
+            {activeAlerts.map((alert, index) => (
+              <View key={alert.id} style={index > 0 ? styles.alertSpacer : undefined}>
+                <Text style={[styles.title, { color: colors.destructive }]}>{alert.title}</Text>
+                <Text style={[styles.body, { color: colors.cardForeground }]}>{alert.message}</Text>
+              </View>
+            ))}
+          </ScrollView>
+          <Text style={[styles.footnote, { color: colors.mutedForeground }]}>
+            Onaylayana kadar uyarı sesi çalmaya devam eder.
           </Text>
           <Pressable
             onPress={acknowledgeAlert}
@@ -52,31 +57,46 @@ const styles = StyleSheet.create({
   card: {
     width: "100%",
     maxWidth: 360,
+    maxHeight: "80%",
     borderRadius: 20,
     padding: 24,
     alignItems: "center",
     gap: 8,
+  },
+  list: {
+    width: "100%",
+    flexGrow: 0,
+  },
+  listContent: {
+    alignItems: "center",
+  },
+  alertSpacer: {
+    marginTop: 16,
+    alignItems: "center",
   },
   title: {
     fontSize: 20,
     fontWeight: "700",
     textAlign: "center",
   },
-  temp: {
-    fontSize: 40,
-    fontWeight: "800",
-    marginVertical: 4,
-  },
   body: {
-    fontSize: 14,
+    fontSize: 16,
+    fontWeight: "600",
     textAlign: "center",
-    marginBottom: 12,
+    marginTop: 4,
+  },
+  footnote: {
+    fontSize: 13,
+    textAlign: "center",
+    marginTop: 12,
+    marginBottom: 4,
   },
   button: {
     width: "100%",
     paddingVertical: 14,
     borderRadius: 14,
     alignItems: "center",
+    marginTop: 8,
   },
   buttonText: {
     color: "#fff",
