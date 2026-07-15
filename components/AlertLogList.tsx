@@ -35,7 +35,7 @@ export function AlertLogList({ entries }: AlertLogListProps) {
         >
           <Feather name="alert-triangle" size={16} color={colors.destructive} />
           <Text style={[styles.rowText, { color: colors.cardForeground }]}>
-            {Math.round(entry.temperatureC)}°C
+            {entry.message ?? (entry.temperatureC !== undefined ? `${Math.round(entry.temperatureC)}°C` : "")}
           </Text>
           <Text style={[styles.rowTime, { color: colors.mutedForeground }]}>{formatTime(entry.timestamp)}</Text>
         </View>
