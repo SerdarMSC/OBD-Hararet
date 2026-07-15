@@ -51,7 +51,8 @@ export const MAX_EGT_THRESHOLD = 1000;
 
 export interface AlertLogEntry {
   id: string;
-  temperatureC: number;
+  temperatureC?: number;
+  message?: string;
   timestamp: number;
 }
 
@@ -465,6 +466,34 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
     [triggerAlert, clearAlert],
   );
 
+  // One-time (per app run) cross-check between the ECU-reported voltage
+  // (PID 0142) and the ELM327 adapter's own directly-measured voltage
+  // (AT RV). A persistent gap larger than 1V usually points to a wiring,
+  // ground, or fuse problem rather than a real low-battery condition — but
+  // this is informational, not an emergency: it's logged once to the
+  // history and shown as a plain one-shot notification, without the
+  // looping alarm sound or the blocking "Onayla" overlay used for genuine
+  // threshold alerts.
+  const voltageMismatchWarnedRef = useRef(false);
+
+  const checkVoltageMismatch = useCallback(
+    (pidVoltage: number, elmVoltage: number) => {
+      if (voltageMismatchWarnedRef.current) return;
+      if (Math.abs(pidVoltage - elmVoltage) <= 1) return;
+      voltageMismatchWarnedRef.current = true;
+
+      const message =
+        "ELM ve ECU arasında 1 volttan fazla fark tespit edildi. Tesisatınızı kontrol ettirmenizde fayda var.";
+      setAlertHistory((prev) => {
+        const next = [{ id: `${Date.now()}`, message, timestamp: Date.now() }, ...prev].slice(0, MAX_ALERT_HISTORY);
+        persistAlerts(next);
+        return next;
+      });
+      sendCustomAlert(alertSoundIdRef.current ?? DEFAULT_ALERT_SOUND_ID, "Voltaj tutarsızlığı", message).catch(() => {});
+    },
+    [persistAlerts],
+  );
+
   const handleOilTempReading = useCallback(
     (value: number | null, note?: string) => {
       if (!oilTempEnabledRef.current) return;
@@ -544,6 +573,14 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
         try {
           const v = await obdEngine.queryBatteryVoltage();
           if (!cancelled) handleVoltageReading(v, v === null ? obdEngine.getLastRawVoltageResponse() : undefined);
+          if (!cancelled && v !== null) {
+            try {
+              const elmV = await obdEngine.queryElmVoltage();
+              if (!cancelled && elmV !== null) checkVoltageMismatch(v, elmV);
+            } catch {
+              // best-effort — mismatch check isn't critical
+            }
+          }
         } catch (err) {
           if (!cancelled) handleVoltageReading(null, err instanceof Error ? err.message : "Okuma hatası");
         }
@@ -576,19 +613,27 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [connectionStatus, isMonitoring, handleReading, handleVoltageReading, handleOilTempReading, handleEgtReading]);
+  }, [
+    connectionStatus,
+    isMonitoring,
+    handleReading,
+    handleVoltageReading,
+    handleOilTempReading,
+    handleEgtReading,
+    checkVoltageMismatch,
+  ]);
 
   const startMonitoring = useCallback(async () => {
     await startBackgroundMonitoring({
       pollIntervalMs: pollIntervalRef,
       deviceAddress: deviceAddressRef,
       onReading: handleReading,
-      voltage: { enabled: voltageEnabledRef, onReading: handleVoltageReading },
+      voltage: { enabled: voltageEnabledRef, onReading: handleVoltageReading, onMismatchCheck: checkVoltageMismatch },
       oilTemp: { enabled: oilTempEnabledRef, onReading: handleOilTempReading },
       egt: { enabled: egtEnabledRef, onReading: handleEgtReading },
     });
     setIsMonitoring(true);
-  }, [handleReading, handleVoltageReading, handleOilTempReading, handleEgtReading]);
+  }, [handleReading, handleVoltageReading, handleOilTempReading, handleEgtReading, checkVoltageMismatch]);
 
   const stopMonitoring = useCallback(async () => {
     await stopBackgroundMonitoring();
