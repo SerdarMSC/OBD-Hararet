@@ -30,11 +30,17 @@ export interface ExtraSensorRefs {
   onReading: (value: number | null, error?: string) => void;
 }
 
+export interface VoltageSensorRefs extends ExtraSensorRefs {
+  /** Called with (pidVoltage, elmVoltage) whenever both readings succeed in
+   * the same cycle, so the caller can compare ELM327 vs ECU voltage. */
+  onMismatchCheck: (pidVoltage: number, elmVoltage: number) => void;
+}
+
 export interface MonitorRefs {
   pollIntervalMs: { current: number };
   deviceAddress: { current: string | null };
   onReading: (temp: number | null, error?: string) => void;
-  voltage: ExtraSensorRefs;
+  voltage: VoltageSensorRefs;
   oilTemp: ExtraSensorRefs;
   egt: ExtraSensorRefs;
 }
@@ -121,6 +127,17 @@ const monitorTask = async () => {
             try {
               const v = await obdEngine.queryBatteryVoltage();
               refs.voltage.onReading(v, v === null ? obdEngine.getLastRawVoltageResponse() : undefined);
+              if (v !== null) {
+                try {
+                  const elmV = await obdEngine.queryElmVoltage();
+                  if (elmV !== null) {
+                    refs.voltage.onMismatchCheck(v, elmV);
+                  }
+                } catch {
+                  // Mismatch check is best-effort diagnostics — a failure
+                  // here shouldn't affect the main voltage reading/alert.
+                }
+              }
             } catch (e) {
               refs.voltage.onReading(null, e instanceof Error ? e.message : String(e));
             }

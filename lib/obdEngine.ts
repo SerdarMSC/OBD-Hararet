@@ -1,12 +1,14 @@
 import { PermissionsAndroid, Platform } from "react-native";
 
 import {
+  BATTERY_VOLTAGE_COMMAND,
   BATTERY_VOLTAGE_PID,
   COOLANT_TEMP_PID,
   EGT_BANK1_PID,
   ELM327_INIT_COMMANDS,
   OIL_TEMP_PID,
   isResponseComplete,
+  parseAtRvResponse,
   parseCoolantTempResponse,
   parseEgtResponse,
   parseOilTempResponse,
@@ -433,7 +435,8 @@ class ObdEngineSingleton {
     return temp;
   }
 
-  /** PID 0142 — Control module (battery/alternator) voltage, in volts. */
+  /** PID 0142 — Control module (battery/alternator) voltage as reported by
+   * the vehicle's own ECU, in volts. This is the value shown/alerted on. */
   async queryBatteryVoltage(): Promise<number | null> {
     if (!this.device) {
       throw new Error("Bağlı cihaz yok.");
@@ -441,6 +444,18 @@ class ObdEngineSingleton {
     const response = await this.sendRaw(BATTERY_VOLTAGE_PID + "\r");
     this.lastRawVoltageResponse = response.replace(/[\r\n>]/g, " ").trim();
     return parseVoltageResponse(response);
+  }
+
+  /** ELM327 "AT RV" — reads the OBD port input voltage directly from the
+   * adapter itself, in volts. Used only to cross-check against the ECU's
+   * PID 0142 reading (a large, persistent gap between the two usually
+   * means a wiring/ground/fuse problem, not a real battery issue). */
+  async queryElmVoltage(): Promise<number | null> {
+    if (!this.device) {
+      throw new Error("Bağlı cihaz yok.");
+    }
+    const response = await this.sendRaw(BATTERY_VOLTAGE_COMMAND + "\r");
+    return parseAtRvResponse(response);
   }
 
   /** PID 015C — Engine oil temperature, in °C. */

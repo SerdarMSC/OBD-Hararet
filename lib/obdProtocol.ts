@@ -18,6 +18,12 @@ export const COOLANT_TEMP_PID = "0105";
 export const BATTERY_VOLTAGE_PID = "0142";
 export const OIL_TEMP_PID = "015C";
 export const EGT_BANK1_PID = "0178";
+/** ELM327 AT command that reads the voltage at the OBD port directly from
+ * the adapter itself — independent of vehicle ECU support. Used alongside
+ * PID 0142 (which the ECU reports) to cross-check the two readings for a
+ * wiring/ground fault warning. Confirmed against the official ELM327
+ * datasheet ("Reading the Battery Voltage"). */
+export const BATTERY_VOLTAGE_COMMAND = "ATRV";
 
 function isNoDataResponse(cleaned: string): boolean {
   return !cleaned || cleaned.includes("NO DATA") || cleaned.includes("ERROR") || cleaned.includes("UNABLE");
@@ -78,6 +84,19 @@ export function parseVoltageResponse(raw: string): number | null {
   if (Number.isNaN(a) || Number.isNaN(b)) return null;
   const volts = (a * 256 + b) / 1000;
   return Math.round(volts * 10) / 10;
+}
+
+/**
+ * Parses the ELM327 "AT RV" response, which is plain ASCII text like
+ * "12.6V" — not a hex-encoded PID payload like the other sensors here.
+ */
+export function parseAtRvResponse(raw: string): number | null {
+  const cleaned = raw.replace(/[\r\n>]/g, " ").trim().toUpperCase();
+  if (isNoDataResponse(cleaned)) return null;
+  const match = cleaned.match(/(\d+(?:\.\d+)?)\s*V/);
+  if (!match) return null;
+  const value = parseFloat(match[1]);
+  return Number.isNaN(value) ? null : Math.round(value * 10) / 10;
 }
 
 /** PID 015C — Engine oil temperature. Formula: A - 40 (°C). */
