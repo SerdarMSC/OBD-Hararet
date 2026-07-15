@@ -25,10 +25,18 @@ export function isBackgroundServiceAvailable(): boolean {
   return BackgroundServiceModule !== null;
 }
 
+export interface ExtraSensorRefs {
+  enabled: { current: boolean };
+  onReading: (value: number | null, error?: string) => void;
+}
+
 export interface MonitorRefs {
   pollIntervalMs: { current: number };
   deviceAddress: { current: string | null };
   onReading: (temp: number | null, error?: string) => void;
+  voltage: ExtraSensorRefs;
+  oilTemp: ExtraSensorRefs;
+  egt: ExtraSensorRefs;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -104,6 +112,35 @@ const monitorTask = async () => {
           const temp = await obdEngine.queryCoolantTemp();
           writeTrace(`#${iteration} query OK. temp=${temp}`);
           refs.onReading(temp, temp === null ? obdEngine.getLastRawResponse() : undefined);
+
+          // Optional sensors: each toggled independently in Settings. Query
+          // sequentially (only one command can be in flight at a time over
+          // the single serial connection) and keep each one's failure from
+          // affecting the others or the main coolant reading.
+          if (refs.voltage.enabled.current) {
+            try {
+              const v = await obdEngine.queryBatteryVoltage();
+              refs.voltage.onReading(v, v === null ? obdEngine.getLastRawVoltageResponse() : undefined);
+            } catch (e) {
+              refs.voltage.onReading(null, e instanceof Error ? e.message : String(e));
+            }
+          }
+          if (refs.oilTemp.enabled.current) {
+            try {
+              const o = await obdEngine.queryOilTemp();
+              refs.oilTemp.onReading(o, o === null ? obdEngine.getLastRawOilTempResponse() : undefined);
+            } catch (e) {
+              refs.oilTemp.onReading(null, e instanceof Error ? e.message : String(e));
+            }
+          }
+          if (refs.egt.enabled.current) {
+            try {
+              const g = await obdEngine.queryEgt();
+              refs.egt.onReading(g, g === null ? obdEngine.getLastRawEgtResponse() : undefined);
+            } catch (e) {
+              refs.egt.onReading(null, e instanceof Error ? e.message : String(e));
+            }
+          }
         } else {
           writeTrace(`#${iteration} still not connected — no query sent this iteration.`);
         }

@@ -1,10 +1,16 @@
 import { PermissionsAndroid, Platform } from "react-native";
 
 import {
+  BATTERY_VOLTAGE_PID,
   COOLANT_TEMP_PID,
+  EGT_BANK1_PID,
   ELM327_INIT_COMMANDS,
+  OIL_TEMP_PID,
   isResponseComplete,
   parseCoolantTempResponse,
+  parseEgtResponse,
+  parseOilTempResponse,
+  parseVoltageResponse,
 } from "./obdProtocol";
 
 export interface PairedDevice {
@@ -87,9 +93,24 @@ class ObdEngineSingleton {
   private responseTimeoutMs = DEFAULT_RESPONSE_TIMEOUT_MS;
   private connectTimeoutMs = DEFAULT_CONNECT_TIMEOUT_MS;
   private lastRawResponse = "";
+  private lastRawVoltageResponse = "";
+  private lastRawOilTempResponse = "";
+  private lastRawEgtResponse = "";
 
   getLastRawResponse(): string {
     return this.lastRawResponse;
+  }
+
+  getLastRawVoltageResponse(): string {
+    return this.lastRawVoltageResponse;
+  }
+
+  getLastRawOilTempResponse(): string {
+    return this.lastRawOilTempResponse;
+  }
+
+  getLastRawEgtResponse(): string {
+    return this.lastRawEgtResponse;
   }
 
   setResponseTimeoutMs(value: number) {
@@ -410,6 +431,36 @@ class ObdEngineSingleton {
     const temp = parseCoolantTempResponse(response);
     this.emitReading(temp);
     return temp;
+  }
+
+  /** PID 0142 — Control module (battery/alternator) voltage, in volts. */
+  async queryBatteryVoltage(): Promise<number | null> {
+    if (!this.device) {
+      throw new Error("Bağlı cihaz yok.");
+    }
+    const response = await this.sendRaw(BATTERY_VOLTAGE_PID + "\r");
+    this.lastRawVoltageResponse = response.replace(/[\r\n>]/g, " ").trim();
+    return parseVoltageResponse(response);
+  }
+
+  /** PID 015C — Engine oil temperature, in °C. */
+  async queryOilTemp(): Promise<number | null> {
+    if (!this.device) {
+      throw new Error("Bağlı cihaz yok.");
+    }
+    const response = await this.sendRaw(OIL_TEMP_PID + "\r");
+    this.lastRawOilTempResponse = response.replace(/[\r\n>]/g, " ").trim();
+    return parseOilTempResponse(response);
+  }
+
+  /** PID 0178 — Exhaust gas temperature (bank 1, sensor 1), in °C. */
+  async queryEgt(): Promise<number | null> {
+    if (!this.device) {
+      throw new Error("Bağlı cihaz yok.");
+    }
+    const response = await this.sendRaw(EGT_BANK1_PID + "\r");
+    this.lastRawEgtResponse = response.replace(/[\r\n>]/g, " ").trim();
+    return parseEgtResponse(response);
   }
 }
 

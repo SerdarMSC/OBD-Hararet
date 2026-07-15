@@ -129,13 +129,13 @@ export async function ensureAlertSoundChannels(): Promise<void> {
   }
 }
 
-/** Fires the high-temperature alert notification using the given sound option. */
-export async function sendTemperatureAlert(soundId: string, temp: number): Promise<void> {
+/** Fires an alert notification with a custom title/body using the given sound option. */
+export async function sendCustomAlert(soundId: string, title: string, body: string): Promise<void> {
   const option = optionFor(soundId);
   await Notifications.scheduleNotificationAsync({
     content: {
-      title: "Motor sıcaklığı yüksek!",
-      body: `Motor sıcaklığı ${temp}°C'ye ulaştı. Aracı kontrol edin.`,
+      title,
+      body,
       sound: option.filename ?? "default",
     },
     trigger: {
@@ -144,6 +144,11 @@ export async function sendTemperatureAlert(soundId: string, temp: number): Promi
       channelId: channelIdFor(option.id),
     },
   });
+}
+
+/** Fires the high-temperature alert notification using the given sound option. */
+export async function sendTemperatureAlert(soundId: string, temp: number): Promise<void> {
+  await sendCustomAlert(soundId, "Motor sıcaklığı yüksek!", `Motor sıcaklığı ${temp}°C'ye ulaştı. Aracı kontrol edin.`);
 }
 
 /** Fires an immediate preview notification so the user can hear a sound before picking it. */
