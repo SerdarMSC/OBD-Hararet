@@ -35,6 +35,8 @@ import {
   stopLoopingAlert,
 } from "@/lib/alertSounds";
 
+import { updateTemperature as updateAndroidAutoTemperature } from "obd-auto-bridge";
+
 const ALERT_COOLDOWN_MS = 60_000;
 
 const DEFAULT_VOLTAGE_THRESHOLD = 12;
@@ -412,7 +414,10 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
         setLastUpdated(Date.now());
         setLastReadingNote(null);
 
-        if (temp >= thresholdRef.current) {
+        const isAboveThreshold = temp >= thresholdRef.current;
+        updateAndroidAutoTemperature(temp, isAboveThreshold);
+
+        if (isAboveThreshold) {
           const now = Date.now();
           if (now - lastAlertAtRef.current > ALERT_COOLDOWN_MS) {
             lastAlertAtRef.current = now;
