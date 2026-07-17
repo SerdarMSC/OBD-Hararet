@@ -1,6 +1,10 @@
-apply plugin: 'com.android.library'
-apply plugin: 'kotlin-android'
-apply plugin: 'expo-module'
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.obdsicaklik.izleyici'
+version = '1.0.0'
 
 android {
     namespace "expo.modules.obdautobridge"
