@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "OBD Alarm",
+    "name": "OBD Temp Alarm",
     "slug": "obd-hararet",
-    "version": "2.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "mobile",
@@ -47,7 +47,7 @@
       [
         "expo-router",
         {
-          "origin": "https://www.mscsi.net"
+          "origin": "https://replit.com/"
         }
       ],
       "expo-font",
@@ -64,7 +64,8 @@
           ]
         }
       ],
-      "expo-audio"
+      "expo-audio",
+      "./plugins/withAndroidAuto"
     ],
     "experiments": {
       "typedRoutes": true,
@@ -72,7 +73,7 @@
     },
     "extra": {
       "router": {
-        "origin": "https://www.mscsi.net/"
+        "origin": "https://mscsi.net/"
       },
       "eas": {
         "projectId": "9e33fee8-7e74-4cd5-9c94-5c5e0604b605"

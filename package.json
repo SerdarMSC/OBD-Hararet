@@ -65,6 +65,7 @@
     "babel-preset-expo": "^57.0.2",
     "expo": "~54.0.35",
     "react": "19.1.0",
-    "react-native": "0.81.5"
+    "react-native": "0.81.5",
+    "obd-auto-bridge": "file:./modules/obd-auto-bridge"
   }
 }
