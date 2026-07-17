@@ -1,0 +1,10 @@
+{
+  "name": "obd-auto-bridge",
+  "version": "1.0.0",
+  "description": "OBD temperature bridge for Android Auto",
+  "main": "src/index.ts",
+  "private": true,
+  "peerDependencies": {
+    "expo-modules-core": "*"
+  }
+}
