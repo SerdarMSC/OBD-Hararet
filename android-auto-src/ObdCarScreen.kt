@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.SharedPreferences
 import android.os.Build
 import androidx.car.app.CarContext
 import androidx.car.app.Screen
@@ -43,53 +44,82 @@ class ObdCarScreen(carContext: CarContext) : Screen(carContext) {
         })
     }
 
+    private data class SensorReading(
+        val label: String,
+        val enabled: Boolean,
+        val hasValue: Boolean,
+        val value: Float,
+        val unit: String,
+        val isAlert: Boolean,
+    )
+
+    private fun readSensor(prefs: SharedPreferences, key: String, label: String, unit: String): SensorReading {
+        val enabled = prefs.getBoolean("${key}_enabled", false)
+        val value = prefs.getFloat("${key}_value", NO_VALUE)
+        val hasValue = value != NO_VALUE
+        val isAlert = prefs.getBoolean("${key}_alert", false)
+        return SensorReading(label, enabled, hasValue, value, unit, isAlert)
+    }
+
     override fun onGetTemplate(): Template {
         val prefs = carContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val tempFloat = prefs.getFloat(KEY_TEMPERATURE, Float.MIN_VALUE)
-        val isAlert = prefs.getBoolean(KEY_IS_ALERT, false)
-        val updatedAt = prefs.getLong(KEY_UPDATED_AT, 0L)
 
-        val hasData = tempFloat != Float.MIN_VALUE && updatedAt > 0L
+        val coolant = readSensor(prefs, "coolant", "Motor sıcaklığı", "°C")
+        val voltage = readSensor(prefs, "voltage", "Akü voltajı", "V")
+        val oilTemp = readSensor(prefs, "oilTemp", "Yağ sıcaklığı", "°C")
+        val egt = readSensor(prefs, "egt", "EGT sıcaklığı", "°C")
 
-        return when {
-            !hasData ->
-                MessageTemplate.Builder(
-                    "OBD adaptörüne bağlanılmadı.\nTelefondaki uygulamadan bağlantı kurun."
-                )
-                    .setTitle("Motor Sıcaklığı")
-                    .setHeaderAction(Action.APP_ICON)
-                    .build()
-
-            isAlert ->
-                MessageTemplate.Builder(
-                    "Motor sıcaklığı kritik!\n${tempFloat.toInt()}°C"
-                )
-                    .setTitle("SICAKLIK UYARISI")
-                    .setHeaderAction(Action.APP_ICON)
-                    .addAction(
-                        Action.Builder()
-                            .setTitle("Tamam")
-                            .setBackgroundColor(CarColor.RED)
-                            .setOnClickListener { invalidate() }
-                            .build()
-                    )
-                    .build()
-
-            else ->
-                MessageTemplate.Builder(
-                    "${tempFloat.toInt()}°C\nMotor sıcaklığı normal."
-                )
-                    .setTitle("Motor Sıcaklığı")
-                    .setHeaderAction(Action.APP_ICON)
-                    .build()
+        // Coolant is always the "connected at all?" signal — it's the one
+        // sensor that's never independently toggleable.
+        if (!coolant.hasValue) {
+            return MessageTemplate.Builder(
+                "OBD adaptörüne bağlanılmadı.\nTelefondaki uygulamadan bağlantı kurun."
+            )
+                .setTitle("Motor Sıcaklığı")
+                .setHeaderAction(Action.APP_ICON)
+                .build()
         }
+
+        val allSensors = listOf(coolant, voltage, oilTemp, egt)
+        val activeAlerts = allSensors.filter { it.enabled && it.hasValue && it.isAlert }
+        val normalRows = allSensors.filter { it.enabled && it.hasValue }
+
+        if (activeAlerts.isNotEmpty()) {
+            val body = activeAlerts.joinToString("\n") { "${it.label}: ${formatValue(it.value)}${it.unit}" }
+            return MessageTemplate.Builder("$body\n\nAracı kontrol edin.")
+                .setTitle(if (activeAlerts.size > 1) "BİRDEN FAZLA UYARI!" else "UYARI!")
+                .setHeaderAction(Action.APP_ICON)
+                .addAction(
+                    Action.Builder()
+                        .setTitle("Tamam")
+                        .setBackgroundColor(CarColor.RED)
+                        .setOnClickListener {
+                            val ackIntent = Intent(ACTION_OBD_ACKNOWLEDGE).apply {
+                                setPackage(carContext.packageName)
+                            }
+                            carContext.sendBroadcast(ackIntent)
+                            invalidate()
+                        }
+                        .build()
+                )
+                .build()
+        }
+
+        val body = normalRows.joinToString("\n") { "${it.label}: ${formatValue(it.value)}${it.unit}" }
+        return MessageTemplate.Builder(body)
+            .setTitle("Motor Sıcaklığı")
+            .setHeaderAction(Action.APP_ICON)
+            .build()
+    }
+
+    private fun formatValue(value: Float): String {
+        return if (value == value.toInt().toFloat()) value.toInt().toString() else value.toString()
     }
 
     companion object {
         const val PREFS_NAME = "obd_auto_data"
-        const val KEY_TEMPERATURE = "temperature"
-        const val KEY_IS_ALERT = "is_alert"
-        const val KEY_UPDATED_AT = "updated_at"
+        const val NO_VALUE = -9999.0f
         const val ACTION_OBD_UPDATE = "com.obdsicaklik.izleyici.OBD_UPDATE"
+        const val ACTION_OBD_ACKNOWLEDGE = "com.obdsicaklik.izleyici.OBD_ACKNOWLEDGE_FROM_CAR"
     }
 }
