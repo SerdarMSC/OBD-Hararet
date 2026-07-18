@@ -35,7 +35,11 @@ import {
   stopLoopingAlert,
 } from "@/lib/alertSounds";
 
-import { updateTemperature as updateAndroidAutoTemperature } from "obd-auto-bridge";
+import {
+  addAcknowledgeFromCarListener,
+  updateSensor as updateAndroidAutoSensor,
+  updateTemperature as updateAndroidAutoTemperature,
+} from "obd-auto-bridge";
 
 const ALERT_COOLDOWN_MS = 60_000;
 
@@ -451,7 +455,9 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
       if (value !== null) {
         setVoltageValue(value);
         setVoltageNote(null);
-        if (value <= voltageThresholdRef.current) {
+        const isLow = value <= voltageThresholdRef.current;
+        updateAndroidAutoSensor("voltage", true, value, isLow);
+        if (isLow) {
           const now = Date.now();
           if (now - voltageLastAlertAtRef.current > ALERT_COOLDOWN_MS) {
             voltageLastAlertAtRef.current = now;
@@ -505,7 +511,9 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
       if (value !== null) {
         setOilTempValue(value);
         setOilTempNote(null);
-        if (value >= oilTempThresholdRef.current) {
+        const isHigh = value >= oilTempThresholdRef.current;
+        updateAndroidAutoSensor("oilTemp", true, value, isHigh);
+        if (isHigh) {
           const now = Date.now();
           if (now - oilTempLastAlertAtRef.current > ALERT_COOLDOWN_MS) {
             oilTempLastAlertAtRef.current = now;
@@ -531,7 +539,9 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
       if (value !== null) {
         setEgtValue(value);
         setEgtNote(null);
-        if (value >= egtThresholdRef.current) {
+        const isHigh = value >= egtThresholdRef.current;
+        updateAndroidAutoSensor("egt", true, value, isHigh);
+        if (isHigh) {
           const now = Date.now();
           if (now - egtLastAlertAtRef.current > ALERT_COOLDOWN_MS) {
             egtLastAlertAtRef.current = now;
@@ -709,6 +719,19 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
     setActiveAlertsMap({});
   }, []);
 
+  // Tapping "Tamam" on the Android Auto screen while an alert is showing
+  // should have the exact same effect as tapping "Onayla" on the phone —
+  // stop the looping alarm sound and dismiss the overlay, from wherever
+  // the driver actually acted on it.
+  useEffect(() => {
+    const unsubscribe = addAcknowledgeFromCarListener(() => {
+      acknowledgeAlert();
+    });
+    return () => {
+      unsubscribe?.();
+    };
+  }, [acknowledgeAlert]);
+
   const setVoltageEnabled = useCallback((value: boolean) => {
     setVoltageEnabledState(value);
     AsyncStorage.setItem(STORAGE_KEYS.voltageEnabled, value ? "1" : "0").catch(() => {});
@@ -716,6 +739,7 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
       setVoltageValue(null);
       setVoltageNote(null);
       clearAlert("voltage");
+      updateAndroidAutoSensor("voltage", false, null, false);
     }
   }, [clearAlert]);
 
@@ -731,6 +755,7 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
       setOilTempValue(null);
       setOilTempNote(null);
       clearAlert("oilTemp");
+      updateAndroidAutoSensor("oilTemp", false, null, false);
     }
   }, [clearAlert]);
 
@@ -746,6 +771,7 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
       setEgtValue(null);
       setEgtNote(null);
       clearAlert("egt");
+      updateAndroidAutoSensor("egt", false, null, false);
     }
   }, [clearAlert]);
 
