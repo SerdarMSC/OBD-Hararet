@@ -2,7 +2,7 @@
   "expo": {
     "name": "OBD Temp Alarm",
     "slug": "obd-hararet",
-    "version": "1.0.1",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "mobile",
@@ -47,7 +47,7 @@
       [
         "expo-router",
         {
-          "origin": "https://replit.com/"
+          "origin": "https://mscsi.net/"
         }
       ],
       "expo-font",
