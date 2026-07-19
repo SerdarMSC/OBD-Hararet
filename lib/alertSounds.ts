@@ -75,35 +75,86 @@ let activeLoopPlayer: AudioPlayer | null = null;
  * stopped first.
  */
 export async function startLoopingAlert(soundId: string): Promise<void> {
-  await ensureAudioModeConfigured();
-  stopLoopingAlert();
-
-  const option = optionFor(soundId);
-  const assetKey = option.filename ? soundId : "siren";
-  const asset = LOOP_SOUND_ASSETS[assetKey] ?? LOOP_SOUND_ASSETS.siren;
-
   try {
-    const player = createAudioPlayer(asset);
-    player.loop = true;
-    player.volume = 1.0;
-    player.play();
+    await ensureAudioModeConfigured();
+    stopLoopingAlert();
+
+    const option = optionFor(soundId);
+    const assetKey = option.filename ? soundId : "siren";
+    const asset = LOOP_SOUND_ASSETS[assetKey] ?? LOOP_SOUND_ASSETS.siren;
+
+    let player: AudioPlayer;
+    try {
+      player = createAudioPlayer(asset);
+    } catch {
+      // createAudioPlayer itself can reject on some SDK 54 builds — give up
+      // on looping playback; the notification + in-app banner still fire.
+      return;
+    }
+
+    // expo-audio (SDK 54) can reject play() asynchronously with
+    // "Call to function 'AudioPlayer.play' has been rejected", which a
+    // plain try/catch around play() does NOT catch and which otherwise
+    // crashes the app. Attaching a status listener lets us observe and
+    // swallow that async failure instead of letting it become fatal.
+    try {
+      player.addListener("playbackStatusUpdate", (status: any) => {
+        if (status?.error) {
+          // Playback failed after starting — clean up quietly.
+          stopLoopingAlert();
+        }
+      });
+    } catch {
+      // listener attach failed — non-fatal
+    }
+
     activeLoopPlayer = player;
+
+    try {
+      player.loop = true;
+      player.volume = 1.0;
+    } catch {
+      // setting properties failed — non-fatal, try to play anyway
+    }
+
+    // Wrap play() in a microtask + catch so both sync throws and async
+    // promise rejections are contained and can never crash the app.
+    try {
+      const result: unknown = (player as unknown as { play: () => unknown }).play();
+      if (result && typeof (result as Promise<unknown>).then === "function") {
+        (result as Promise<unknown>).catch(() => {
+          stopLoopingAlert();
+        });
+      }
+    } catch {
+      stopLoopingAlert();
+    }
   } catch {
-    // If playback fails to start (e.g. audio focus denied), the one-shot
-    // notification sound + in-app banner are still shown.
+    // Absolute last-resort guard — under no circumstances should a failure
+    // to play the alert sound crash the app or interrupt monitoring.
   }
 }
 
 /** Stops the currently looping alert sound, if any. */
 export function stopLoopingAlert(): void {
-  if (activeLoopPlayer) {
+  const player = activeLoopPlayer;
+  activeLoopPlayer = null;
+  if (player) {
     try {
-      activeLoopPlayer.pause();
-      activeLoopPlayer.remove();
+      player.removeAllListeners?.("playbackStatusUpdate");
+    } catch {
+      // ignore
+    }
+    try {
+      player.pause();
     } catch {
       // ignore — player may already be released
     }
-    activeLoopPlayer = null;
+    try {
+      player.remove();
+    } catch {
+      // ignore — player may already be released
+    }
   }
 }
 
