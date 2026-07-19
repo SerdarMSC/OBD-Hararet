@@ -4,6 +4,8 @@ const NO_VALUE = -9999.0;
 
 interface NativeObdAutoBridge {
   updateSensor: (key: string, enabled: boolean, value: number, isAlert: boolean) => void;
+  postAutoMessage: (title: string, body: string) => void;
+  clearAutoMessage: () => void;
   addListener: (eventName: string, listener: (...args: any[]) => void) => { remove: () => void };
 }
 
@@ -31,6 +33,20 @@ export function updateSensor(key: string, enabled: boolean, value: number | null
 /** Convenience wrapper for the always-on coolant sensor. */
 export function updateTemperature(temp: number, isAlert: boolean): void {
   updateSensor("coolant", true, temp, isAlert);
+}
+
+/**
+ * Posts a MessagingStyle notification that Android Auto will surface as a
+ * heads-up card on the car display (the same mechanism messaging apps like
+ * WhatsApp use). No-op on iOS or non-EAS builds.
+ */
+export function postAutoMessage(title: string, body: string): void {
+  nativeModule?.postAutoMessage(title, body);
+}
+
+/** Removes the Android Auto message card (e.g. once the alert clears). */
+export function clearAutoMessage(): void {
+  nativeModule?.clearAutoMessage();
 }
 
 /**
