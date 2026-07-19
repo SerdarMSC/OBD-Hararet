@@ -37,6 +37,8 @@ import {
 
 import {
   addAcknowledgeFromCarListener,
+  clearAutoMessage,
+  postAutoMessage,
   updateSensor as updateAndroidAutoSensor,
   updateTemperature as updateAndroidAutoTemperature,
 } from "obd-auto-bridge";
@@ -395,6 +397,8 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
   const triggerAlert = useCallback((id: string, title: string, message: string, soundId: string) => {
     setActiveAlertsMap((prev) => ({ ...prev, [id]: { title, message } }));
     startLoopingAlert(soundId).catch(() => {});
+    // Surface the alert as an Android Auto heads-up card (MessagingStyle).
+    postAutoMessage(title, message);
   }, []);
 
   const clearAlert = useCallback((id: string) => {
@@ -404,8 +408,9 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
       delete next[id];
       if (Object.keys(next).length === 0) {
         // No other sensor is currently in an alert state — safe to stop
-        // the shared looping sound.
+        // the shared looping sound and remove the car display card.
         stopLoopingAlert();
+        clearAutoMessage();
       }
       return next;
     });
@@ -716,6 +721,7 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
 
   const acknowledgeAlert = useCallback(() => {
     stopLoopingAlert();
+    clearAutoMessage();
     setActiveAlertsMap({});
   }, []);
 
