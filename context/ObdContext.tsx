@@ -416,12 +416,101 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  // ---- Thermostat health monitoring ----------------------------------
+  // Physiology: once the engine is fully warm the thermostat opens (temp
+  // peaks, e.g. 88C), cool water enters and the temp dips (e.g. 82C), the
+  // thermostat closes, and the temp climbs back toward the peak. A healthy
+  // thermostat re-approaches its peak fairly quickly; if after the FIRST
+  // peak the temp cannot get back to within 2C of that peak within 5
+  // minutes, that points to a lazy/failing thermostat.
+  //
+  // This is informational (like the voltage-mismatch check): one-shot per
+  // app run, logged to history + a single silent notification, NO looping
+  // alarm or blocking overlay.
+  //
+  // State machine phases:
+  //   "warming"  – climbing toward the first peak; watching for the turn-over
+  //   "watching" – first peak captured; 5-min window running, waiting for
+  //                the temp to recover to (peak - 2C)
+  //   "done"     – either recovered (healthy, machine resets to warming for
+  //                the next cycle) or already warned once this app run
+  const THERMOSTAT_RECOVERY_MARGIN_C = 2;
+  const THERMOSTAT_WINDOW_MS = 5 * 60 * 1000;
+  // Ignore tiny sensor jitter when detecting the "turned over into a dip".
+  const THERMOSTAT_DIP_DELTA_C = 2;
+  // Don't even start looking until the engine is genuinely warm, so early
+  // warm-up wobble isn't mistaken for a thermostat cycle.
+  const THERMOSTAT_MIN_WARM_C = 70;
+
+  const thermostatWarnedRef = useRef(false);
+  const thermostatPhaseRef = useRef<"warming" | "watching">("warming");
+  const thermostatPeakRef = useRef<number | null>(null);
+  const thermostatMaxSinceRef = useRef<number | null>(null);
+  const thermostatWindowStartRef = useRef(0);
+
+  const checkThermostat = useCallback(
+    (temp: number) => {
+      if (thermostatWarnedRef.current) return;
+      if (temp < THERMOSTAT_MIN_WARM_C) return;
+
+      if (thermostatPhaseRef.current === "warming") {
+        // Track the running maximum; a peak is confirmed once the temp has
+        // fallen THERMOSTAT_DIP_DELTA_C below that maximum (thermostat opened).
+        const runningMax = thermostatMaxSinceRef.current;
+        if (runningMax === null || temp > runningMax) {
+          thermostatMaxSinceRef.current = temp;
+          return;
+        }
+        if (runningMax - temp >= THERMOSTAT_DIP_DELTA_C) {
+          // Turn-over detected → this running max is the first peak.
+          thermostatPeakRef.current = runningMax;
+          thermostatWindowStartRef.current = Date.now();
+          thermostatPhaseRef.current = "watching";
+        }
+        return;
+      }
+
+      // phase === "watching"
+      const peak = thermostatPeakRef.current;
+      if (peak === null) {
+        thermostatPhaseRef.current = "warming";
+        thermostatMaxSinceRef.current = temp;
+        return;
+      }
+
+      if (temp >= peak - THERMOSTAT_RECOVERY_MARGIN_C) {
+        // Recovered in time → healthy. Reset to watch the next cycle
+        // (this handles the normal repeating open/close oscillation).
+        thermostatPhaseRef.current = "warming";
+        thermostatMaxSinceRef.current = temp;
+        thermostatPeakRef.current = null;
+        return;
+      }
+
+      if (Date.now() - thermostatWindowStartRef.current >= THERMOSTAT_WINDOW_MS) {
+        // 5 minutes elapsed without recovering → warn once.
+        thermostatWarnedRef.current = true;
+        const message =
+          "Termostat performansınızda sorun algılandı, takip ve kontrol önerilir.";
+        setAlertHistory((prev) => {
+          const next = [{ id: `${Date.now()}`, message, timestamp: Date.now() }, ...prev].slice(0, MAX_ALERT_HISTORY);
+          persistAlerts(next);
+          return next;
+        });
+        sendCustomAlert(alertSoundIdRef.current ?? DEFAULT_ALERT_SOUND_ID, "Termostat uyarısı", message).catch(() => {});
+      }
+    },
+    [persistAlerts],
+  );
+
   const handleReading = useCallback(
     (temp: number | null, note?: string) => {
       if (temp !== null) {
         setTemperatureC(temp);
         setLastUpdated(Date.now());
         setLastReadingNote(null);
+
+        checkThermostat(temp);
 
         const isAboveThreshold = temp >= thresholdRef.current;
         updateAndroidAutoTemperature(temp, isAboveThreshold);
@@ -451,7 +540,7 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
         setLastReadingNote(note);
       }
     },
-    [handleAlert, triggerAlert, clearAlert],
+    [handleAlert, triggerAlert, clearAlert, checkThermostat],
   );
 
   const handleVoltageReading = useCallback(
