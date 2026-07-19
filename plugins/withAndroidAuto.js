@@ -44,7 +44,7 @@ function withCarAppManifest(config) {
           "intent-filter": [
             {
               action: [{ $: { "android:name": "androidx.car.app.CarAppService" } }],
-              category: [{ $: { "android:name": "androidx.car.app.category.POI" } }],
+              category: [{ $: { "android:name": "androidx.car.app.category.IOT" } }],
             },
           ],
           "meta-data": [
