@@ -715,8 +715,22 @@ export function ObdProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.setItem(STORAGE_KEYS.alertSound, value).catch(() => {});
   }, []);
 
+  const activeAlertsMapRef = useRef(activeAlertsMap);
+  activeAlertsMapRef.current = activeAlertsMap;
+
   const previewSelectedAlertSound = useCallback(async () => {
     await previewAlertSound(alertSoundIdRef.current);
+    // Also fire a test card to the Android Auto display so the car-side
+    // integration can be verified from Settings without needing a real
+    // over-threshold reading. It's a preview only, so we auto-clear it
+    // shortly after — but only if no genuine alert is active, so the test
+    // never wipes a real alert card off the car screen.
+    postAutoMessage("Uyarı testi", "Bu bir test bildirimidir. Android Auto bağlantısı çalışıyor.");
+    setTimeout(() => {
+      if (Object.keys(activeAlertsMapRef.current).length === 0) {
+        clearAutoMessage();
+      }
+    }, 8000);
   }, []);
 
   const acknowledgeAlert = useCallback(() => {
