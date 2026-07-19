@@ -154,12 +154,8 @@ export default function SettingsScreen() {
     ]);
   }, [clearAlertHistory]);
 
-  const handlePreviewSound = useCallback(async () => {
-    try {
-      await previewSelectedAlertSound();
-    } catch {
-      Alert.alert("Önizleme başarısız", "Bildirim izni verilmemiş olabilir.");
-    }
+  const handlePreviewSound = useCallback(() => {
+    previewSelectedAlertSound();
   }, [previewSelectedAlertSound]);
 
   const handleOpenGithub = useCallback(() => {
