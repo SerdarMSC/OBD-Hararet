@@ -41,12 +41,20 @@ export function updateTemperature(temp: number, isAlert: boolean): void {
  * WhatsApp use). No-op on iOS or non-EAS builds.
  */
 export function postAutoMessage(title: string, body: string): void {
-  nativeModule?.postAutoMessage(title, body);
+  try {
+    nativeModule?.postAutoMessage(title, body);
+  } catch {
+    // Android Auto is a best-effort extra — never let it break alerting.
+  }
 }
 
 /** Removes the Android Auto message card (e.g. once the alert clears). */
 export function clearAutoMessage(): void {
-  nativeModule?.clearAutoMessage();
+  try {
+    nativeModule?.clearAutoMessage();
+  } catch {
+    // ignore
+  }
 }
 
 /**
