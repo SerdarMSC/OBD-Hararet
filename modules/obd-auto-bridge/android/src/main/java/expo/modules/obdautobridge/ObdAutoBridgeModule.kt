@@ -70,21 +70,24 @@ class ObdAutoBridgeModule : Module() {
 
         Function("updateSensor") { key: String, enabled: Boolean, value: Double, isAlert: Boolean ->
             try {
-                val ctx = appContext.reactContext ?: return@Function
-                ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                    .edit()
-                    .putBoolean("${key}_enabled", enabled)
-                    .putFloat("${key}_value", value.toFloat())
-                    .putBoolean("${key}_alert", isAlert)
-                    .putLong("${key}_updatedAt", System.currentTimeMillis())
-                    .apply()
+                val ctx = appContext.reactContext
+                if (ctx != null) {
+                    ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                        .edit()
+                        .putBoolean("${key}_enabled", enabled)
+                        .putFloat("${key}_value", value.toFloat())
+                        .putBoolean("${key}_alert", isAlert)
+                        .putLong("${key}_updatedAt", System.currentTimeMillis())
+                        .apply()
 
-                val intent = Intent(ACTION_OBD_UPDATE).apply { setPackage(ctx.packageName) }
-                ctx.sendBroadcast(intent)
+                    val intent = Intent(ACTION_OBD_UPDATE).apply { setPackage(ctx.packageName) }
+                    ctx.sendBroadcast(intent)
+                }
             } catch (_: Throwable) {
                 // Never let an Android Auto bridge failure crash the app —
                 // the phone-side monitoring/alerting must keep working.
             }
+            null
         }
 
         // Posts (or updates) a MessagingStyle notification. This is the same
@@ -96,23 +99,29 @@ class ObdAutoBridgeModule : Module() {
         // conversation so it renders on the car screen.
         Function("postAutoMessage") { title: String, body: String ->
             try {
-                val ctx = appContext.reactContext ?: return@Function
-                postAutoMessage(ctx, title, body)
+                val ctx = appContext.reactContext
+                if (ctx != null) {
+                    postAutoMessage(ctx, title, body)
+                }
             } catch (_: Throwable) {
                 // Building/posting the car notification must never crash the
                 // app — the phone-side alert (sound + overlay) still fires.
             }
+            null
         }
 
         // Removes the Android Auto message notification (e.g. after the
         // alert has been acknowledged / temperature dropped back to normal).
         Function("clearAutoMessage") {
             try {
-                val ctx = appContext.reactContext ?: return@Function
-                NotificationManagerCompat.from(ctx).cancel(AUTO_NOTIFICATION_ID)
+                val ctx = appContext.reactContext
+                if (ctx != null) {
+                    NotificationManagerCompat.from(ctx).cancel(AUTO_NOTIFICATION_ID)
+                }
             } catch (_: Throwable) {
                 // ignore — nothing to clean up we can safely act on
             }
+            null
         }
     }
 
